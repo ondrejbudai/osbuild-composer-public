@@ -1,0 +1,18 @@
+{
+  "name": "composer",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "mounts": [
+    "source=osbuild-share,target=/root/.local/share,type=volume"
+  ],
+  "runArgs": [
+    "--privileged"
+  ],
+  "extensions": [
+    "laurenttreguier.rpm-spec",
+    "golang.Go",
+    "GitHub.vscode-pull-request-github"
+  ]
+}
