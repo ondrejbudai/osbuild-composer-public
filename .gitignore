@@ -1,0 +1,11 @@
+__pycache__
+
+.vscode
+.DS_Store
+/.idea
+
+/containers/config/
+/bin
+/rpmbuild
+
+/tools/appsre-ansible/inventory

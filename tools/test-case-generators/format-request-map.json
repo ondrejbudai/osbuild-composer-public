@@ -1,0 +1,1361 @@
+{
+  "ami": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "ami",
+      "repositories": [],
+      "filename": "image.raw",
+      "blueprint": {}
+    },
+    "overrides": {}
+  },
+  "azure-rhui": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "azure-rhui",
+      "repositories": [],
+      "filename": "disk.vhd.xz",
+      "blueprint": {}
+    },
+    "overrides": {}
+  },
+  "azure-sap-rhui": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "azure-sap-rhui",
+      "repositories": [],
+      "filename": "disk.vhd.xz",
+      "blueprint": {}
+    },
+    "overrides": {},
+    "supported_arches": [
+      "x86_64"
+    ]
+  },
+  "azure-eap7-rhui": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "azure-eap7-rhui",
+      "repositories": [],
+      "filename": "disk.vhd.xz",
+      "blueprint": {}
+    },
+    "overrides": {},
+    "supported_arches": [
+      "x86_64"
+    ]
+  },
+  "container": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "container",
+      "repositories": [],
+      "filename": "container.tar",
+      "blueprint": {}
+    },
+    "overrides": {}
+  },
+  "ec2": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "ec2",
+      "repositories": [],
+      "filename": "image.raw.xz",
+      "blueprint": {}
+    },
+    "overrides": {}
+  },
+  "ec2-ha": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "ec2-ha",
+      "repositories": [],
+      "filename": "image.raw.xz",
+      "blueprint": {}
+    },
+    "overrides": {}
+  },
+  "ec2-sap": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "ec2-sap",
+      "repositories": [],
+      "filename": "image.raw.xz",
+      "blueprint": {}
+    },
+    "overrides": {}
+  },
+  "gce": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "gce",
+      "repositories": [],
+      "filename": "image.tar.gz",
+      "blueprint": {}
+    },
+    "overrides": {}
+  },
+  "gce-rhui": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "gce-rhui",
+      "repositories": [],
+      "filename": "image.tar.gz",
+      "blueprint": {}
+    },
+    "overrides": {}
+  },
+  "edge-commit": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "edge-commit",
+      "repositories": [],
+      "filename": "commit.tar",
+      "blueprint": {}
+    },
+    "overrides": {}
+  },
+  "edge-commit-with-container": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "edge-commit",
+      "repositories": [],
+      "filename": "commit.tar",
+      "blueprint": {
+        "containers": [
+          {
+            "source": "registry.gitlab.com/redhat/services/products/image-builder/ci/osbuild-composer/fedora-minimal"
+          }
+        ]
+      }
+    },
+    "overrides": {}
+  },
+  "edge-commit-customizations": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "edge-commit",
+      "repositories": [],
+      "filename": "commit.tar",
+      "blueprint": {
+        "customizations": {
+          "directories": [
+            {
+              "path": "/etc/systemd/system/custom.service.d"
+            },
+            {
+              "path": "/etc/custom_dir",
+              "mode": "0770",
+              "user": 1020,
+              "group": 1050
+            }
+          ],
+          "files": [
+            {
+              "path": "/etc/systemd/system/custom.service",
+              "data": "[Unit]\nDescription=Custom service\n\n[Service]\nExecStart=/usr/bin/false\n\n[Install]\nWantedBy=multi-user.target\n"
+            },
+            {
+              "path": "/etc/systemd/system/custom.service.d/override.conf",
+              "data": "[Service]\nExecStart=\nExecStart=/usr/bin/cat /etc/custom_file.txt\n"
+            },
+            {
+              "path": "/etc/custom_file.txt",
+              "data": "image builder is the best",
+              "mode": "0644",
+              "user": "root",
+              "group": "root"
+            },
+            {
+              "path": "/etc/empty_file.txt",
+              "user": 0,
+              "group": 0
+            }
+          ],
+          "services": {
+            "enabled": [
+              "custom.service"
+            ]
+          }
+        }
+      }
+    },
+    "overrides": {}
+  },
+  "edge-container": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "edge-container",
+      "repositories": [],
+      "filename": "container.tar",
+      "blueprint": {}
+    },
+    "overrides": {}
+  },
+  "edge-container-customizations": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "edge-container",
+      "repositories": [],
+      "filename": "container.tar",
+      "blueprint": {
+        "customizations": {
+          "directories": [
+            {
+              "path": "/etc/systemd/system/custom.service.d"
+            },
+            {
+              "path": "/etc/custom_dir",
+              "mode": "0770",
+              "user": 1020,
+              "group": 1050
+            }
+          ],
+          "files": [
+            {
+              "path": "/etc/systemd/system/custom.service",
+              "data": "[Unit]\nDescription=Custom service\n\n[Service]\nExecStart=/usr/bin/false\n\n[Install]\nWantedBy=multi-user.target\n"
+            },
+            {
+              "path": "/etc/systemd/system/custom.service.d/override.conf",
+              "data": "[Service]\nExecStart=\nExecStart=/usr/bin/cat /etc/custom_file.txt\n"
+            },
+            {
+              "path": "/etc/custom_file.txt",
+              "data": "image builder is the best",
+              "mode": "0644",
+              "user": "root",
+              "group": "root"
+            },
+            {
+              "path": "/etc/empty_file.txt",
+              "user": 0,
+              "group": 0
+            }
+          ],
+          "services": {
+            "enabled": [
+              "custom.service"
+            ]
+          }
+        }
+      }
+    },
+    "overrides": {}
+  },
+  "edge-commit-rt": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "edge-commit",
+      "repositories": [],
+      "filename": "commit.tar",
+      "blueprint": {
+        "customizations": {
+          "kernel": {
+            "name": "kernel-rt"
+          }
+        }
+      }
+    },
+    "overrides": {
+      "centos-8": {
+        "blueprint": {
+          "customizations": {
+            "kernel": {
+              "name": "kernel-rt-core"
+            }
+          }
+        }
+      }
+    },
+    "supported_arches": [
+      "x86_64"
+    ]
+  },
+  "iot-commit": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "iot-commit",
+      "repositories": [],
+      "filename": "commit.tar",
+      "blueprint": {}
+    },
+    "overrides": {}
+  },
+  "iot-commit-with-container": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "iot-commit",
+      "repositories": [],
+      "filename": "commit.tar",
+      "blueprint": {
+        "containers": [
+          {
+            "source": "registry.gitlab.com/redhat/services/products/image-builder/ci/osbuild-composer/fedora-minimal"
+          }
+        ]
+      }
+    },
+    "overrides": {}
+  },
+  "iot-commit-debug": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "iot-commit",
+      "repositories": [],
+      "filename": "commit.tar",
+      "blueprint": {
+        "customizations": {
+          "kernel": {
+            "name": "kernel-debug"
+          }
+        }
+      }
+    },
+    "overrides": {},
+    "supported_arches": [
+      "x86_64"
+    ]
+  },
+  "iot-commit-customizations": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "iot-commit",
+      "repositories": [],
+      "filename": "commit.tar",
+      "blueprint": {
+        "customizations": {
+          "directories": [
+            {
+              "path": "/etc/systemd/system/custom.service.d"
+            },
+            {
+              "path": "/etc/custom_dir",
+              "mode": "0770",
+              "user": 1020,
+              "group": 1050
+            }
+          ],
+          "files": [
+            {
+              "path": "/etc/systemd/system/custom.service",
+              "data": "[Unit]\nDescription=Custom service\n\n[Service]\nExecStart=/usr/bin/false\n\n[Install]\nWantedBy=multi-user.target\n"
+            },
+            {
+              "path": "/etc/systemd/system/custom.service.d/override.conf",
+              "data": "[Service]\nExecStart=\nExecStart=/usr/bin/cat /etc/custom_file.txt\n"
+            },
+            {
+              "path": "/etc/custom_file.txt",
+              "data": "image builder is the best",
+              "mode": "0644",
+              "user": "root",
+              "group": "root"
+            },
+            {
+              "path": "/etc/empty_file.txt",
+              "user": 0,
+              "group": 0
+            }
+          ],
+          "services": {
+            "enabled": [
+              "custom.service"
+            ]
+          }
+        }
+      }
+    },
+    "overrides": {}
+  },
+  "iot-container": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "iot-container",
+      "repositories": [],
+      "filename": "container.tar",
+      "blueprint": {}
+    },
+    "overrides": {}
+  },
+  "iot-container-customizations": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "iot-container",
+      "repositories": [],
+      "filename": "container.tar",
+      "blueprint": {
+        "customizations": {
+          "directories": [
+            {
+              "path": "/etc/systemd/system/custom.service.d"
+            },
+            {
+              "path": "/etc/custom_dir",
+              "mode": "0770",
+              "user": 1020,
+              "group": 1050
+            }
+          ],
+          "files": [
+            {
+              "path": "/etc/systemd/system/custom.service",
+              "data": "[Unit]\nDescription=Custom service\n\n[Service]\nExecStart=/usr/bin/false\n\n[Install]\nWantedBy=multi-user.target\n"
+            },
+            {
+              "path": "/etc/systemd/system/custom.service.d/override.conf",
+              "data": "[Service]\nExecStart=\nExecStart=/usr/bin/cat /etc/custom_file.txt\n"
+            },
+            {
+              "path": "/etc/custom_file.txt",
+              "data": "image builder is the best",
+              "mode": "0644",
+              "user": "root",
+              "group": "root"
+            },
+            {
+              "path": "/etc/empty_file.txt",
+              "user": 0,
+              "group": 0
+            }
+          ],
+          "services": {
+            "enabled": [
+              "custom.service"
+            ]
+          }
+        }
+      }
+    },
+    "overrides": {}
+  },
+  "iot-installer": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "iot-installer",
+      "repositories": [],
+      "filename": "installer.iso",
+      "ostree": {
+        "ref": "test/iot",
+        "url": "http://iot.example.com/repo",
+        "parent": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "blueprint": {}
+    },
+    "no-image-info": true,
+    "overrides": {}
+  },
+  "iot-installer-with-users": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "iot-installer",
+      "repositories": [],
+      "filename": "installer.iso",
+      "ostree": {
+        "ref": "test/iot",
+        "url": "http://iot.example.com/repo",
+        "parent": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "blueprint": {
+        "name": "iot-installer-users",
+        "customizations": {
+          "user": [
+            {
+              "name": "user2",
+              "description": "description 2",
+              "password": "$6$BhyxFBgrEFh0VrPJ$MllG8auiU26x2pmzL4.1maHzPHrA.4gTdCvlATFp8HJU9UPee4zCS9BVl2HOzKaUYD/zEm8r/OF05F2icWB0K/",
+              "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC61wMCjOSHwbVb4VfVyl5sn497qW4PsdQ7Ty7aD6wDNZ/QjjULkDV/yW5WjDlDQ7UqFH0Sr7vywjqDizUAqK7zM5FsUKsUXWHWwg/ehKg8j9xKcMv11AkFoUoujtfAujnKODkk58XSA9whPr7qcw3vPrmog680pnMSzf9LC7J6kXfs6lkoKfBh9VnlxusCrw2yg0qI1fHAZBLPx7mW6+me71QZsS6sVz8v8KXyrXsKTdnF50FjzHcK9HXDBtSJS5wA3fkcRYymJe0o6WMWNdgSRVpoSiWaHHmFgdMUJaYoCfhXzyl7LtNb3Q+Sveg+tJK7JaRXBLMUllOlJ6ll5Hod root@localhost",
+              "home": "/home/home2",
+              "shell": "/bin/sh",
+              "groups": [
+                "group1"
+              ],
+              "uid": 1020,
+              "gid": 1050
+            }
+          ],
+          "group": [
+            {
+              "name": "group1",
+              "gid": 1030
+            },
+            {
+              "name": "group2",
+              "gid": 1050
+            }
+          ]
+        }
+      }
+    },
+    "no-image-info": true,
+    "overrides": {}
+  },
+  "iot-raw-image": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "iot-raw-image",
+      "repositories": [],
+      "filename": "image.raw.xz",
+      "ostree": {
+        "ref": "test/fedora/iot",
+        "url": "http://fedora.example.com/repo"
+      },
+      "blueprint": {}
+    },
+    "overrides": {}
+  },
+  "openstack": {
+    "boot": {
+      "type": "openstack"
+    },
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "openstack",
+      "repositories": [],
+      "filename": "disk.qcow2",
+      "blueprint": {
+        "name": "openstack-boot-test",
+        "description": "Image for boot test",
+        "packages": [],
+        "modules": [],
+        "groups": [],
+        "customizations": {
+          "user": [
+            {
+              "name": "redhat",
+              "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC61wMCjOSHwbVb4VfVyl5sn497qW4PsdQ7Ty7aD6wDNZ/QjjULkDV/yW5WjDlDQ7UqFH0Sr7vywjqDizUAqK7zM5FsUKsUXWHWwg/ehKg8j9xKcMv11AkFoUoujtfAujnKODkk58XSA9whPr7qcw3vPrmog680pnMSzf9LC7J6kXfs6lkoKfBh9VnlxusCrw2yg0qI1fHAZBLPx7mW6+me71QZsS6sVz8v8KXyrXsKTdnF50FjzHcK9HXDBtSJS5wA3fkcRYymJe0o6WMWNdgSRVpoSiWaHHmFgdMUJaYoCfhXzyl7LtNb3Q+Sveg+tJK7JaRXBLMUllOlJ6ll5Hod root@localhost"
+            }
+          ]
+        }
+      }
+    },
+    "overrides": {}
+  },
+  "tar": {
+    "boot": {
+      "type": "nspawn-extract"
+    },
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "tar",
+      "repositories": [],
+      "filename": "root.tar.xz",
+      "blueprint": {
+        "name": "tar-boot-test",
+        "description": "Image for boot test",
+        "packages": [
+          {
+            "name": "openssh-server",
+            "version": "*"
+          }
+        ],
+        "modules": [],
+        "groups": [],
+        "customizations": {
+          "user": [
+            {
+              "name": "redhat",
+              "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC61wMCjOSHwbVb4VfVyl5sn497qW4PsdQ7Ty7aD6wDNZ/QjjULkDV/yW5WjDlDQ7UqFH0Sr7vywjqDizUAqK7zM5FsUKsUXWHWwg/ehKg8j9xKcMv11AkFoUoujtfAujnKODkk58XSA9whPr7qcw3vPrmog680pnMSzf9LC7J6kXfs6lkoKfBh9VnlxusCrw2yg0qI1fHAZBLPx7mW6+me71QZsS6sVz8v8KXyrXsKTdnF50FjzHcK9HXDBtSJS5wA3fkcRYymJe0o6WMWNdgSRVpoSiWaHHmFgdMUJaYoCfhXzyl7LtNb3Q+Sveg+tJK7JaRXBLMUllOlJ6ll5Hod root@localhost"
+            }
+          ]
+        }
+      }
+    },
+    "overrides": {}
+  },
+  "image-installer": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "image-installer",
+      "repositories": [],
+      "filename": "installer.iso",
+      "blueprint": {}
+    },
+    "no-image-info": true,
+    "overrides": {}
+  },
+  "image-installer-with-users": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "image-installer",
+      "repositories": [],
+      "filename": "installer.iso",
+      "blueprint": {
+        "name": "image-installer-users",
+        "packages": [
+          {
+            "name": "podman",
+            "version": "*"
+          }
+        ],
+        "customizations": {
+          "user": [
+            {
+              "name": "user2",
+              "description": "description 2",
+              "password": "$6$BhyxFBgrEFh0VrPJ$MllG8auiU26x2pmzL4.1maHzPHrA.4gTdCvlATFp8HJU9UPee4zCS9BVl2HOzKaUYD/zEm8r/OF05F2icWB0K/",
+              "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC61wMCjOSHwbVb4VfVyl5sn497qW4PsdQ7Ty7aD6wDNZ/QjjULkDV/yW5WjDlDQ7UqFH0Sr7vywjqDizUAqK7zM5FsUKsUXWHWwg/ehKg8j9xKcMv11AkFoUoujtfAujnKODkk58XSA9whPr7qcw3vPrmog680pnMSzf9LC7J6kXfs6lkoKfBh9VnlxusCrw2yg0qI1fHAZBLPx7mW6+me71QZsS6sVz8v8KXyrXsKTdnF50FjzHcK9HXDBtSJS5wA3fkcRYymJe0o6WMWNdgSRVpoSiWaHHmFgdMUJaYoCfhXzyl7LtNb3Q+Sveg+tJK7JaRXBLMUllOlJ6ll5Hod root@localhost",
+              "home": "/home/home2",
+              "shell": "/bin/sh",
+              "groups": [
+                "group1"
+              ],
+              "uid": 1020,
+              "gid": 1050
+            }
+          ],
+          "group": [
+            {
+              "name": "group1",
+              "gid": 1030
+            },
+            {
+              "name": "group2",
+              "gid": 1050
+            }
+          ]
+        }
+      }
+    },
+    "no-image-info": true,
+    "overrides": {}
+  },
+  "edge-installer": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "edge-installer",
+      "repositories": [],
+      "filename": "installer.iso",
+      "ostree": {
+        "ref": "test/edge",
+        "url": "http://edge.example.com/repo",
+        "parent": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "rhsm": true
+      },
+      "blueprint": {}
+    },
+    "no-image-info": true,
+    "overrides": {}
+  },
+  "edge-installer-with-users": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "edge-installer",
+      "repositories": [],
+      "filename": "installer.iso",
+      "ostree": {
+        "ref": "test/edge",
+        "url": "http://edge.example.com/repo",
+        "parent": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "blueprint": {
+        "name": "edge-installer-users",
+        "customizations": {
+          "user": [
+            {
+              "name": "user2",
+              "description": "description 2",
+              "password": "$6$BhyxFBgrEFh0VrPJ$MllG8auiU26x2pmzL4.1maHzPHrA.4gTdCvlATFp8HJU9UPee4zCS9BVl2HOzKaUYD/zEm8r/OF05F2icWB0K/",
+              "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC61wMCjOSHwbVb4VfVyl5sn497qW4PsdQ7Ty7aD6wDNZ/QjjULkDV/yW5WjDlDQ7UqFH0Sr7vywjqDizUAqK7zM5FsUKsUXWHWwg/ehKg8j9xKcMv11AkFoUoujtfAujnKODkk58XSA9whPr7qcw3vPrmog680pnMSzf9LC7J6kXfs6lkoKfBh9VnlxusCrw2yg0qI1fHAZBLPx7mW6+me71QZsS6sVz8v8KXyrXsKTdnF50FjzHcK9HXDBtSJS5wA3fkcRYymJe0o6WMWNdgSRVpoSiWaHHmFgdMUJaYoCfhXzyl7LtNb3Q+Sveg+tJK7JaRXBLMUllOlJ6ll5Hod root@localhost",
+              "home": "/home/home2",
+              "shell": "/bin/sh",
+              "groups": [
+                "group1"
+              ],
+              "uid": 1020,
+              "gid": 1050
+            }
+          ],
+          "group": [
+            {
+              "name": "group1",
+              "gid": 1030
+            },
+            {
+              "name": "group2",
+              "gid": 1050
+            }
+          ]
+        }
+      }
+    },
+    "no-image-info": true,
+    "overrides": {
+      "rhel-85": {
+        "blueprint": {}
+      },
+      "rhel-90-beta": {
+        "blueprint": {}
+      }
+    }
+  },
+  "edge-simplified-installer": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "edge-simplified-installer",
+      "repositories": [],
+      "filename": "installer.iso",
+      "ostree": {
+        "ref": "test/edge",
+        "url": "http://edge.example.com/repo",
+        "parent": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "blueprint": {
+        "customizations": {
+          "installation_device": "/dev/vda",
+          "fdo": {
+            "manufacturing_server_url": "https;//fdo.example.com",
+            "diun_pub_key_insecure": "true"
+          }
+        }
+      }
+    },
+    "no-image-info": true,
+    "overrides": {
+      "rhel-85": {
+        "blueprint": {
+          "customizations": {
+            "installation_device": "/dev/vda"
+          }
+        }
+      }
+    }
+  },
+  "edge-raw-image": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "edge-raw-image",
+      "repositories": [],
+      "filename": "image.raw.xz",
+      "ostree": {
+        "ref": "test/edge",
+        "url": "http://edge.example.com/repo",
+        "parent": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "blueprint": {}
+    },
+    "overrides": {}
+  },
+  "oci": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "oci",
+      "repositories": [],
+      "filename": "disk.qcow2",
+      "blueprint": {}
+    },
+    "overrides": {}
+  },
+  "qcow2": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "qcow2",
+      "repositories": [],
+      "filename": "disk.qcow2",
+      "blueprint": {
+        "name": "qcow2-boot-test",
+        "description": "Image for boot test",
+        "packages": [],
+        "modules": [],
+        "groups": [],
+        "customizations": {
+          "user": [
+            {
+              "name": "redhat",
+              "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC61wMCjOSHwbVb4VfVyl5sn497qW4PsdQ7Ty7aD6wDNZ/QjjULkDV/yW5WjDlDQ7UqFH0Sr7vywjqDizUAqK7zM5FsUKsUXWHWwg/ehKg8j9xKcMv11AkFoUoujtfAujnKODkk58XSA9whPr7qcw3vPrmog680pnMSzf9LC7J6kXfs6lkoKfBh9VnlxusCrw2yg0qI1fHAZBLPx7mW6+me71QZsS6sVz8v8KXyrXsKTdnF50FjzHcK9HXDBtSJS5wA3fkcRYymJe0o6WMWNdgSRVpoSiWaHHmFgdMUJaYoCfhXzyl7LtNb3Q+Sveg+tJK7JaRXBLMUllOlJ6ll5Hod root@localhost"
+            }
+          ]
+        }
+      }
+    },
+    "overrides": {}
+  },
+  "qcow2-customize": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "qcow2",
+      "repositories": [],
+      "filename": "disk.qcow2",
+      "blueprint": {
+        "name": "qcow2-customize-boot-test",
+        "description": "Image for boot test",
+        "packages": [
+          {
+            "name": "bash",
+            "version": "*"
+          },
+          {
+            "name": "bluez",
+            "version": "*"
+          }
+        ],
+        "modules": [],
+        "groups": [
+          {
+            "name": "core"
+          }
+        ],
+        "customizations": {
+          "hostname": "my-host",
+          "kernel": {
+            "append": "debug"
+          },
+          "sshkey": [
+            {
+              "user": "user1",
+              "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC61wMCjOSHwbVb4VfVyl5sn497qW4PsdQ7Ty7aD6wDNZ/QjjULkDV/yW5WjDlDQ7UqFH0Sr7vywjqDizUAqK7zM5FsUKsUXWHWwg/ehKg8j9xKcMv11AkFoUoujtfAujnKODkk58XSA9whPr7qcw3vPrmog680pnMSzf9LC7J6kXfs6lkoKfBh9VnlxusCrw2yg0qI1fHAZBLPx7mW6+me71QZsS6sVz8v8KXyrXsKTdnF50FjzHcK9HXDBtSJS5wA3fkcRYymJe0o6WMWNdgSRVpoSiWaHHmFgdMUJaYoCfhXzyl7LtNb3Q+Sveg+tJK7JaRXBLMUllOlJ6ll5Hod root@localhost"
+            }
+          ],
+          "user": [
+            {
+              "name": "user2",
+              "description": "description 2",
+              "password": "$6$BhyxFBgrEFh0VrPJ$MllG8auiU26x2pmzL4.1maHzPHrA.4gTdCvlATFp8HJU9UPee4zCS9BVl2HOzKaUYD/zEm8r/OF05F2icWB0K/",
+              "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC61wMCjOSHwbVb4VfVyl5sn497qW4PsdQ7Ty7aD6wDNZ/QjjULkDV/yW5WjDlDQ7UqFH0Sr7vywjqDizUAqK7zM5FsUKsUXWHWwg/ehKg8j9xKcMv11AkFoUoujtfAujnKODkk58XSA9whPr7qcw3vPrmog680pnMSzf9LC7J6kXfs6lkoKfBh9VnlxusCrw2yg0qI1fHAZBLPx7mW6+me71QZsS6sVz8v8KXyrXsKTdnF50FjzHcK9HXDBtSJS5wA3fkcRYymJe0o6WMWNdgSRVpoSiWaHHmFgdMUJaYoCfhXzyl7LtNb3Q+Sveg+tJK7JaRXBLMUllOlJ6ll5Hod root@localhost",
+              "home": "/home/home2",
+              "shell": "/bin/sh",
+              "groups": [
+                "group1"
+              ],
+              "uid": 1020,
+              "gid": 1050
+            }
+          ],
+          "group": [
+            {
+              "name": "group1",
+              "gid": 1030
+            },
+            {
+              "name": "group2",
+              "gid": 1050
+            }
+          ],
+          "timezone": {
+            "timezone": "Europe/London",
+            "ntpservers": [
+              "time.example.com"
+            ]
+          },
+          "locale": {
+            "languages": [
+              "el_CY.UTF-8"
+            ],
+            "keyboard": "dvorak"
+          },
+          "services": {
+            "enabled": [
+              "sshd.socket",
+              "custom.service"
+            ],
+            "disabled": [
+              "bluetooth.service"
+            ]
+          },
+          "filesystem": [
+            {
+              "mountpoint": "/opt",
+              "minsize": 1073741824
+            }
+          ],
+          "directories": [
+            {
+              "path": "/etc/systemd/system/custom.service.d"
+            },
+            {
+              "path": "/etc/custom_dir",
+              "mode": "0770",
+              "user": 1020,
+              "group": 1050
+            }
+          ],
+          "files": [
+            {
+              "path": "/etc/systemd/system/custom.service",
+              "data": "[Unit]\nDescription=Custom service\n\n[Service]\nExecStart=/usr/bin/false\n\n[Install]\nWantedBy=multi-user.target\n"
+            },
+            {
+              "path": "/etc/systemd/system/custom.service.d/override.conf",
+              "data": "[Service]\nExecStart=\nExecStart=/usr/bin/cat /etc/custom_file.txt\n"
+            },
+            {
+              "path": "/etc/custom_file.txt",
+              "data": "image builder is the best",
+              "mode": "0644",
+              "user": "root",
+              "group": "root"
+            },
+            {
+              "path": "/etc/empty_file.txt",
+              "user": 0,
+              "group": 0
+            }
+          ]
+        }
+      }
+    },
+    "overrides": {
+      "rhel-91": {
+        "blueprint": {
+          "name": "qcow2-customize-boot-test",
+          "description": "Image for boot test",
+          "packages": [
+            {
+              "name": "bash",
+              "version": "*"
+            },
+            {
+              "name": "bluez",
+              "version": "*"
+            }
+          ],
+          "modules": [],
+          "groups": [
+            {
+              "name": "core"
+            }
+          ],
+          "customizations": {
+            "hostname": "my-host",
+            "kernel": {
+              "append": "debug"
+            },
+            "sshkey": [
+              {
+                "user": "user1",
+                "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC61wMCjOSHwbVb4VfVyl5sn497qW4PsdQ7Ty7aD6wDNZ/QjjULkDV/yW5WjDlDQ7UqFH0Sr7vywjqDizUAqK7zM5FsUKsUXWHWwg/ehKg8j9xKcMv11AkFoUoujtfAujnKODkk58XSA9whPr7qcw3vPrmog680pnMSzf9LC7J6kXfs6lkoKfBh9VnlxusCrw2yg0qI1fHAZBLPx7mW6+me71QZsS6sVz8v8KXyrXsKTdnF50FjzHcK9HXDBtSJS5wA3fkcRYymJe0o6WMWNdgSRVpoSiWaHHmFgdMUJaYoCfhXzyl7LtNb3Q+Sveg+tJK7JaRXBLMUllOlJ6ll5Hod root@localhost"
+              }
+            ],
+            "user": [
+              {
+                "name": "user2",
+                "description": "description 2",
+                "password": "$6$BhyxFBgrEFh0VrPJ$MllG8auiU26x2pmzL4.1maHzPHrA.4gTdCvlATFp8HJU9UPee4zCS9BVl2HOzKaUYD/zEm8r/OF05F2icWB0K/",
+                "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC61wMCjOSHwbVb4VfVyl5sn497qW4PsdQ7Ty7aD6wDNZ/QjjULkDV/yW5WjDlDQ7UqFH0Sr7vywjqDizUAqK7zM5FsUKsUXWHWwg/ehKg8j9xKcMv11AkFoUoujtfAujnKODkk58XSA9whPr7qcw3vPrmog680pnMSzf9LC7J6kXfs6lkoKfBh9VnlxusCrw2yg0qI1fHAZBLPx7mW6+me71QZsS6sVz8v8KXyrXsKTdnF50FjzHcK9HXDBtSJS5wA3fkcRYymJe0o6WMWNdgSRVpoSiWaHHmFgdMUJaYoCfhXzyl7LtNb3Q+Sveg+tJK7JaRXBLMUllOlJ6ll5Hod root@localhost",
+                "home": "/home/home2",
+                "shell": "/bin/sh",
+                "groups": [
+                  "group1"
+                ],
+                "uid": 1020,
+                "gid": 1050
+              }
+            ],
+            "group": [
+              {
+                "name": "group1",
+                "gid": 1030
+              },
+              {
+                "name": "group2",
+                "gid": 1050
+              }
+            ],
+            "timezone": {
+              "timezone": "Europe/London",
+              "ntpservers": [
+                "time.example.com"
+              ]
+            },
+            "locale": {
+              "languages": [
+                "el_CY.UTF-8"
+              ],
+              "keyboard": "dvorak"
+            },
+            "services": {
+              "enabled": [
+                "sshd.socket",
+                "custom.service"
+              ],
+              "disabled": [
+                "bluetooth.service"
+              ]
+            },
+            "filesystem": [
+              {
+                "mountpoint": "/opt",
+                "minsize": 1073741824
+              }
+            ],
+            "directories": [
+              {
+                "path": "/etc/systemd/system/custom.service.d"
+              },
+              {
+                "path": "/etc/custom_dir",
+                "mode": "0770",
+                "user": 1020,
+                "group": 1050
+              }
+            ],
+            "files": [
+              {
+                "path": "/etc/systemd/system/custom.service",
+                "data": "[Unit]\nDescription=Custom service\n\n[Service]\nExecStart=/usr/bin/false\n\n[Install]\nWantedBy=multi-user.target\n"
+              },
+              {
+                "path": "/etc/systemd/system/custom.service.d/override.conf",
+                "data": "[Service]\nExecStart=\nExecStart=/usr/bin/cat /etc/custom_file.txt\n"
+              },
+              {
+                "path": "/etc/custom_file.txt",
+                "data": "image builder is the best",
+                "mode": "0644",
+                "user": "root",
+                "group": "root"
+              },
+              {
+                "path": "/etc/empty_file.txt",
+                "user": 0,
+                "group": 0
+              }
+            ]
+          },
+          "containers": [
+            {
+              "source": "registry.gitlab.com/redhat/services/products/image-builder/ci/osbuild-composer/fedora-minimal"
+            }
+          ]
+        }
+      },
+      "rhel-84": {
+        "blueprint": {
+          "name": "qcow2-customize-boot-test",
+          "description": "Image for boot test",
+          "packages": [
+            {
+              "name": "bash",
+              "version": "*"
+            },
+            {
+              "name": "bluez",
+              "version": "*"
+            }
+          ],
+          "modules": [],
+          "groups": [
+            {
+              "name": "core"
+            }
+          ],
+          "customizations": {
+            "hostname": "my-host",
+            "kernel": {
+              "append": "debug"
+            },
+            "sshkey": [
+              {
+                "user": "user1",
+                "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC61wMCjOSHwbVb4VfVyl5sn497qW4PsdQ7Ty7aD6wDNZ/QjjULkDV/yW5WjDlDQ7UqFH0Sr7vywjqDizUAqK7zM5FsUKsUXWHWwg/ehKg8j9xKcMv11AkFoUoujtfAujnKODkk58XSA9whPr7qcw3vPrmog680pnMSzf9LC7J6kXfs6lkoKfBh9VnlxusCrw2yg0qI1fHAZBLPx7mW6+me71QZsS6sVz8v8KXyrXsKTdnF50FjzHcK9HXDBtSJS5wA3fkcRYymJe0o6WMWNdgSRVpoSiWaHHmFgdMUJaYoCfhXzyl7LtNb3Q+Sveg+tJK7JaRXBLMUllOlJ6ll5Hod root@localhost"
+              }
+            ],
+            "user": [
+              {
+                "name": "user2",
+                "description": "description 2",
+                "password": "$6$BhyxFBgrEFh0VrPJ$MllG8auiU26x2pmzL4.1maHzPHrA.4gTdCvlATFp8HJU9UPee4zCS9BVl2HOzKaUYD/zEm8r/OF05F2icWB0K/",
+                "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC61wMCjOSHwbVb4VfVyl5sn497qW4PsdQ7Ty7aD6wDNZ/QjjULkDV/yW5WjDlDQ7UqFH0Sr7vywjqDizUAqK7zM5FsUKsUXWHWwg/ehKg8j9xKcMv11AkFoUoujtfAujnKODkk58XSA9whPr7qcw3vPrmog680pnMSzf9LC7J6kXfs6lkoKfBh9VnlxusCrw2yg0qI1fHAZBLPx7mW6+me71QZsS6sVz8v8KXyrXsKTdnF50FjzHcK9HXDBtSJS5wA3fkcRYymJe0o6WMWNdgSRVpoSiWaHHmFgdMUJaYoCfhXzyl7LtNb3Q+Sveg+tJK7JaRXBLMUllOlJ6ll5Hod root@localhost",
+                "home": "/home/home2",
+                "shell": "/bin/sh",
+                "groups": [
+                  "group1"
+                ],
+                "uid": 1020,
+                "gid": 1050
+              }
+            ],
+            "group": [
+              {
+                "name": "group1",
+                "gid": 1030
+              },
+              {
+                "name": "group2",
+                "gid": 1050
+              }
+            ],
+            "timezone": {
+              "timezone": "Europe/London",
+              "ntpservers": [
+                "time.example.com"
+              ]
+            },
+            "locale": {
+              "languages": [
+                "el_CY.UTF-8"
+              ],
+              "keyboard": "dvorak"
+            },
+            "services": {
+              "enabled": [
+                "sshd.socket",
+                "custom.service"
+              ],
+              "disabled": [
+                "bluetooth.service"
+              ]
+            },
+            "directories": [
+              {
+                "path": "/etc/systemd/system/custom.service.d"
+              },
+              {
+                "path": "/etc/custom_dir",
+                "mode": "0770",
+                "user": 1020,
+                "group": 1050
+              }
+            ],
+            "files": [
+              {
+                "path": "/etc/systemd/system/custom.service",
+                "data": "[Unit]\nDescription=Custom service\n\n[Service]\nExecStart=/usr/bin/false\n\n[Install]\nWantedBy=multi-user.target\n"
+              },
+              {
+                "path": "/etc/systemd/system/custom.service.d/override.conf",
+                "data": "[Service]\nExecStart=\nExecStart=/usr/bin/cat /etc/custom_file.txt\n"
+              },
+              {
+                "path": "/etc/custom_file.txt",
+                "data": "image builder is the best",
+                "mode": "0644",
+                "user": "root",
+                "group": "root"
+              },
+              {
+                "path": "/etc/empty_file.txt",
+                "user": 0,
+                "group": 0
+              }
+            ]
+          }
+        }
+      },
+      "rhel-85": {
+        "blueprint": {
+          "name": "qcow2-customize-boot-test",
+          "description": "Image for boot test",
+          "packages": [
+            {
+              "name": "bash",
+              "version": "*"
+            },
+            {
+              "name": "bluez",
+              "version": "*"
+            }
+          ],
+          "modules": [],
+          "groups": [
+            {
+              "name": "core"
+            }
+          ],
+          "customizations": {
+            "hostname": "my-host",
+            "kernel": {
+              "append": "debug"
+            },
+            "sshkey": [
+              {
+                "user": "user1",
+                "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC61wMCjOSHwbVb4VfVyl5sn497qW4PsdQ7Ty7aD6wDNZ/QjjULkDV/yW5WjDlDQ7UqFH0Sr7vywjqDizUAqK7zM5FsUKsUXWHWwg/ehKg8j9xKcMv11AkFoUoujtfAujnKODkk58XSA9whPr7qcw3vPrmog680pnMSzf9LC7J6kXfs6lkoKfBh9VnlxusCrw2yg0qI1fHAZBLPx7mW6+me71QZsS6sVz8v8KXyrXsKTdnF50FjzHcK9HXDBtSJS5wA3fkcRYymJe0o6WMWNdgSRVpoSiWaHHmFgdMUJaYoCfhXzyl7LtNb3Q+Sveg+tJK7JaRXBLMUllOlJ6ll5Hod root@localhost"
+              }
+            ],
+            "user": [
+              {
+                "name": "user2",
+                "description": "description 2",
+                "password": "$6$BhyxFBgrEFh0VrPJ$MllG8auiU26x2pmzL4.1maHzPHrA.4gTdCvlATFp8HJU9UPee4zCS9BVl2HOzKaUYD/zEm8r/OF05F2icWB0K/",
+                "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC61wMCjOSHwbVb4VfVyl5sn497qW4PsdQ7Ty7aD6wDNZ/QjjULkDV/yW5WjDlDQ7UqFH0Sr7vywjqDizUAqK7zM5FsUKsUXWHWwg/ehKg8j9xKcMv11AkFoUoujtfAujnKODkk58XSA9whPr7qcw3vPrmog680pnMSzf9LC7J6kXfs6lkoKfBh9VnlxusCrw2yg0qI1fHAZBLPx7mW6+me71QZsS6sVz8v8KXyrXsKTdnF50FjzHcK9HXDBtSJS5wA3fkcRYymJe0o6WMWNdgSRVpoSiWaHHmFgdMUJaYoCfhXzyl7LtNb3Q+Sveg+tJK7JaRXBLMUllOlJ6ll5Hod root@localhost",
+                "home": "/home/home2",
+                "shell": "/bin/sh",
+                "groups": [
+                  "group1"
+                ],
+                "uid": 1020,
+                "gid": 1050
+              }
+            ],
+            "group": [
+              {
+                "name": "group1",
+                "gid": 1030
+              },
+              {
+                "name": "group2",
+                "gid": 1050
+              }
+            ],
+            "timezone": {
+              "timezone": "Europe/London",
+              "ntpservers": [
+                "time.example.com"
+              ]
+            },
+            "locale": {
+              "languages": [
+                "el_CY.UTF-8"
+              ],
+              "keyboard": "dvorak"
+            },
+            "services": {
+              "enabled": [
+                "sshd.socket",
+                "custom.service"
+              ],
+              "disabled": [
+                "bluetooth.service"
+              ]
+            },
+            "filesystem": [
+              {
+                "mountpoint": "/usr",
+                "minsize": 2147483648
+              },
+              {
+                "mountpoint": "/var",
+                "minsize": 1073741824
+              },
+              {
+                "mountpoint": "/",
+                "minsize": 2147483648
+              }
+            ],
+            "directories": [
+              {
+                "path": "/etc/systemd/system/custom.service.d"
+              },
+              {
+                "path": "/etc/custom_dir",
+                "mode": "0770",
+                "user": 1020,
+                "group": 1050
+              }
+            ],
+            "files": [
+              {
+                "path": "/etc/systemd/system/custom.service",
+                "data": "[Unit]\nDescription=Custom service\n\n[Service]\nExecStart=/usr/bin/false\n\n[Install]\nWantedBy=multi-user.target\n"
+              },
+              {
+                "path": "/etc/systemd/system/custom.service.d/override.conf",
+                "data": "[Service]\nExecStart=\nExecStart=/usr/bin/cat /etc/custom_file.txt\n"
+              },
+              {
+                "path": "/etc/custom_file.txt",
+                "data": "image builder is the best",
+                "mode": "0644",
+                "user": "root",
+                "group": "root"
+              },
+              {
+                "path": "/etc/empty_file.txt",
+                "user": 0,
+                "group": 0
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "vhd": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "vhd",
+      "repositories": [],
+      "filename": "disk.vhd",
+      "blueprint": {
+        "name": "vhd-boot-test",
+        "description": "Image for boot test",
+        "packages": [],
+        "modules": [],
+        "groups": [],
+        "customizations": {
+          "user": [
+            {
+              "name": "redhat",
+              "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC61wMCjOSHwbVb4VfVyl5sn497qW4PsdQ7Ty7aD6wDNZ/QjjULkDV/yW5WjDlDQ7UqFH0Sr7vywjqDizUAqK7zM5FsUKsUXWHWwg/ehKg8j9xKcMv11AkFoUoujtfAujnKODkk58XSA9whPr7qcw3vPrmog680pnMSzf9LC7J6kXfs6lkoKfBh9VnlxusCrw2yg0qI1fHAZBLPx7mW6+me71QZsS6sVz8v8KXyrXsKTdnF50FjzHcK9HXDBtSJS5wA3fkcRYymJe0o6WMWNdgSRVpoSiWaHHmFgdMUJaYoCfhXzyl7LtNb3Q+Sveg+tJK7JaRXBLMUllOlJ6ll5Hod root@localhost"
+            }
+          ]
+        }
+      }
+    },
+    "overrides": {}
+  },
+  "vmdk": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "vmdk",
+      "filename": "disk.vmdk",
+      "blueprint": {
+        "name": "vmdk-boot-test",
+        "description": "Image for boot test",
+        "packages": [],
+        "modules": [],
+        "groups": [],
+        "customizations": {
+          "user": [
+            {
+              "name": "redhat",
+              "key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC61wMCjOSHwbVb4VfVyl5sn497qW4PsdQ7Ty7aD6wDNZ/QjjULkDV/yW5WjDlDQ7UqFH0Sr7vywjqDizUAqK7zM5FsUKsUXWHWwg/ehKg8j9xKcMv11AkFoUoujtfAujnKODkk58XSA9whPr7qcw3vPrmog680pnMSzf9LC7J6kXfs6lkoKfBh9VnlxusCrw2yg0qI1fHAZBLPx7mW6+me71QZsS6sVz8v8KXyrXsKTdnF50FjzHcK9HXDBtSJS5wA3fkcRYymJe0o6WMWNdgSRVpoSiWaHHmFgdMUJaYoCfhXzyl7LtNb3Q+Sveg+tJK7JaRXBLMUllOlJ6ll5Hod root@localhost"
+            }
+          ]
+        }
+      }
+    },
+    "overrides": {}
+  },
+  "minimal-raw": {
+    "compose-request": {
+      "distro": "",
+      "arch": "",
+      "image-type": "minimal-raw",
+      "repositories": [],
+      "filename": "raw.img",
+      "blueprint": {}
+    },
+    "no-image-info": true,
+    "overrides": {}
+  }
+}
