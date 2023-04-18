@@ -108,14 +108,26 @@ fi
 # Filter out beta and centos-stream, see GH issue #2257
 ALL_DISTROS=$(find "$REPO_PATH" -name '*.json' -printf '%P\n' | awk -F "." '{ print $1 }')
 ALL_EXPECTED_DISTROS=$(echo "$ALL_DISTROS" | grep -E "$PATTERN" | grep -Ev 'beta|stream' | sort)
-ALL_REMAINDERS=$(echo "$ALL_DISTROS" | grep -v "$RECOGNIZED_DISTROS")
+# Warning: filter out the remaining distros by matching whole words to avoid matching
+# the value rhel-93 by the pattern rhel-9!
+# If we're running on a RHEL 9.2 osbuild-composer doesn't know anything about 9.3
+# images so the value rhel-9.3 should be treated as unrecognized and error out as
+# expected in the test snippet further below
+ALL_REMAINDERS=$(echo "$ALL_DISTROS" | grep -vw "$RECOGNIZED_DISTROS")
 
 # Check for any missing distros based on the expected host pattern
 if [ "$ALL_EXPECTED_DISTROS" != "$INSTALLED_DISTROS" ];then
     echo "Some distros are missing!"
     echo "Missing distros:"
     diff <(echo "${ALL_EXPECTED_DISTROS}") <(echo "${INSTALLED_DISTROS}") | grep "<" | sed 's/^<\ //g'
-    exit 1
+
+    # the check above compares repositories/*.json files from git checkout
+    # vs the files installed from an RPM package in order to find files which are
+    # not included in the RPM. Don't fail when running on nightly CI pipeline b/c
+    # very often the repository will be newer than the downstream RPM.
+    if [[ "${CI_PIPELINE_SOURCE:-}" != "schedule" ]]; then
+        exit 1
+    fi
 fi
 
 # Push a blueprint with unsupported distro to see if composer fails gracefuly

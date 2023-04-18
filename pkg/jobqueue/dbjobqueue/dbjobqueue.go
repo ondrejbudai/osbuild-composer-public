@@ -18,9 +18,10 @@ import (
 	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/sirupsen/logrus"
+
 	"github.com/ondrejbudai/osbuild-composer-public/public/common/slogger"
 	"github.com/ondrejbudai/osbuild-composer-public/pkg/jobqueue"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -312,15 +313,12 @@ func (q *DBJobQueue) Dequeue(ctx context.Context, jobTypes []string, channels []
 	el := q.dequeuers.pushBack(c)
 	defer q.dequeuers.remove(el)
 
-	var id uuid.UUID
-	var jobType string
-	var args json.RawMessage
 	token := uuid.New()
 	for {
 		var err error
-		id, jobType, args, err = q.dequeueMaybe(ctx, token, jobTypes, channels)
+		id, dependencies, jobType, args, err := q.dequeueMaybe(ctx, token, jobTypes, channels)
 		if err == nil {
-			break
+			return id, token, dependencies, jobType, args, nil
 		}
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
@@ -336,41 +334,64 @@ func (q *DBJobQueue) Dequeue(ctx context.Context, jobTypes []string, channels []
 			return uuid.Nil, uuid.Nil, nil, "", nil, jobqueue.ErrDequeueTimeout
 		}
 	}
+}
 
+// dequeueMaybe tries to dequeue a job.
+//
+// Dequeuing a job means to run the sqlDequeue query, insert an initial
+// heartbeat and retrieve all extra metadata from the database.
+//
+// This method returns pgx.ErrNoRows if the method didn't manage to dequeue
+// anything
+func (q *DBJobQueue) dequeueMaybe(ctx context.Context, token uuid.UUID, jobTypes []string, channels []string) (uuid.UUID, []uuid.UUID, string, json.RawMessage, error) {
+	var conn *pgxpool.Conn
 	conn, err := q.pool.Acquire(ctx)
 	if err != nil {
-		return uuid.Nil, uuid.Nil, nil, "", nil, fmt.Errorf("error connecting to database: %v", err)
+		return uuid.Nil, nil, "", nil, fmt.Errorf("error acquiring a new connection when dequeueing: %w", err)
 	}
 	defer conn.Release()
 
-	// insert heartbeat
-	_, err = conn.Exec(ctx, sqlInsertHeartbeat, token, id)
+	tx, err := conn.Begin(ctx)
 	if err != nil {
-		return uuid.Nil, uuid.Nil, nil, "", nil, fmt.Errorf("error inserting the job's heartbeat: %v", err)
+		return uuid.Nil, nil, "", nil, fmt.Errorf("error starting a new transaction when dequeueing: %w", err)
 	}
 
-	dependencies, err := q.jobDependencies(ctx, conn, id)
+	defer func() {
+		err = tx.Rollback(context.Background())
+		if err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			q.logger.Error(err, "Error rolling back dequeuing transaction")
+		}
+	}()
+
+	var id uuid.UUID
+	var jobType string
+	var args json.RawMessage
+	err = tx.QueryRow(ctx, sqlDequeue, token, jobTypes, channels).Scan(&id, &jobType, &args)
+
+	// skip the rest of the dequeueing operation if there are no rows
+	if err != nil && errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, nil, "", nil, err
+	}
+
+	// insert heartbeat
+	_, err = tx.Exec(ctx, sqlInsertHeartbeat, token, id)
 	if err != nil {
-		return uuid.Nil, uuid.Nil, nil, "", nil, fmt.Errorf("error querying the job's dependencies: %v", err)
+		return uuid.Nil, nil, "", nil, fmt.Errorf("error inserting the job's heartbeat: %v", err)
+	}
+
+	dependencies, err := q.jobDependencies(ctx, tx, id)
+	if err != nil {
+		return uuid.Nil, nil, "", nil, fmt.Errorf("error querying the job's dependencies: %v", err)
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return uuid.Nil, nil, "", nil, fmt.Errorf("error committing the transaction for dequeueing job %s: %w", id.String(), err)
 	}
 
 	q.logger.Info("Dequeued job", "job_type", jobType, "job_id", id.String(), "job_dependencies", fmt.Sprintf("%+v", dependencies))
 
-	return id, token, dependencies, jobType, args, nil
-}
-
-// dequeueMaybe is just a smaller helper for acquiring a connection and
-// running the sqlDequeue query
-func (q *DBJobQueue) dequeueMaybe(ctx context.Context, token uuid.UUID, jobTypes []string, channels []string) (id uuid.UUID, jobType string, args json.RawMessage, err error) {
-	var conn *pgxpool.Conn
-	conn, err = q.pool.Acquire(ctx)
-	if err != nil {
-		return
-	}
-	defer conn.Release()
-
-	err = conn.QueryRow(ctx, sqlDequeue, token, jobTypes, channels).Scan(&id, &jobType, &args)
-	return
+	return id, dependencies, jobType, args, nil
 }
 
 func (q *DBJobQueue) DequeueByID(ctx context.Context, id uuid.UUID) (uuid.UUID, []uuid.UUID, string, json.RawMessage, error) {
@@ -385,12 +406,24 @@ func (q *DBJobQueue) DequeueByID(ctx context.Context, id uuid.UUID) (uuid.UUID, 
 	}
 	defer conn.Release()
 
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return uuid.Nil, nil, "", nil, fmt.Errorf("error starting a new transaction: %w", err)
+	}
+
+	defer func() {
+		err = tx.Rollback(context.Background())
+		if err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			q.logger.Error(err, "Error rolling back dequeuing by id transaction", "job_id", id.String())
+		}
+	}()
+
 	var jobType string
 	var args json.RawMessage
 	var started, queued *time.Time
 	token := uuid.New()
 
-	err = conn.QueryRow(ctx, sqlDequeueByID, token, id).Scan(&token, &jobType, &args, &queued, &started)
+	err = tx.QueryRow(ctx, sqlDequeueByID, token, id).Scan(&token, &jobType, &args, &queued, &started)
 	if err == pgx.ErrNoRows {
 		return uuid.Nil, nil, "", nil, jobqueue.ErrNotPending
 	} else if err != nil {
@@ -398,14 +431,19 @@ func (q *DBJobQueue) DequeueByID(ctx context.Context, id uuid.UUID) (uuid.UUID, 
 	}
 
 	// insert heartbeat
-	_, err = conn.Exec(ctx, sqlInsertHeartbeat, token, id)
+	_, err = tx.Exec(ctx, sqlInsertHeartbeat, token, id)
 	if err != nil {
 		return uuid.Nil, nil, "", nil, fmt.Errorf("error inserting the job's heartbeat: %v", err)
 	}
 
-	dependencies, err := q.jobDependencies(ctx, conn, id)
+	dependencies, err := q.jobDependencies(ctx, tx, id)
 	if err != nil {
 		return uuid.Nil, nil, "", nil, fmt.Errorf("error querying the job's dependencies: %v", err)
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return uuid.Nil, nil, "", nil, fmt.Errorf("error committing a transaction: %w", err)
 	}
 
 	q.logger.Info("Dequeued job", "job_type", jobType, "job_id", id.String(), "job_dependencies", fmt.Sprintf("%+v", dependencies))
@@ -639,7 +677,14 @@ func (q *DBJobQueue) RefreshHeartbeat(token uuid.UUID) {
 	}
 }
 
-func (q *DBJobQueue) jobDependencies(ctx context.Context, conn *pgxpool.Conn, id uuid.UUID) ([]uuid.UUID, error) {
+// connection unifies pgxpool.Conn and pgx.Tx interfaces
+// Some methods don't care whether they run queries on a raw connection,
+// or in a transaction. This interface thus abstracts this concept.
+type connection interface {
+	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+}
+
+func (q *DBJobQueue) jobDependencies(ctx context.Context, conn connection, id uuid.UUID) ([]uuid.UUID, error) {
 	rows, err := conn.Query(ctx, sqlQueryDependencies, id)
 	if err != nil {
 		return nil, err
@@ -663,7 +708,7 @@ func (q *DBJobQueue) jobDependencies(ctx context.Context, conn *pgxpool.Conn, id
 	return dependencies, nil
 }
 
-func (q *DBJobQueue) jobDependents(ctx context.Context, conn *pgxpool.Conn, id uuid.UUID) ([]uuid.UUID, error) {
+func (q *DBJobQueue) jobDependents(ctx context.Context, conn connection, id uuid.UUID) ([]uuid.UUID, error) {
 	rows, err := conn.Query(ctx, sqlQueryDependents, id)
 	if err != nil {
 		return nil, err
