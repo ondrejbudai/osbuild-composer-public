@@ -1,0 +1,23 @@
+name: Update from osbuild-composer
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *"
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+      - name: Sync
+        run: |
+          .public/make-public
+      - name: Commit
+        run: |
+          git config --global user.name 'github automation'
+          git config --global user.email 'github-automation@budai.cz'
+          git add .
+          git commit -m "Update to $(cat .source-commit)"
+          git push

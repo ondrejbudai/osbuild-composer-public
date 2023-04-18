@@ -1,0 +1,38 @@
+#!/bin/bash
+
+TEMPDIR=$(mktemp -d)
+function cleanup() {
+    rm -rf "$TEMPDIR"
+}
+trap cleanup EXIT
+
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
+git clone --depth 1 https://github.com/osbuild/osbuild-composer.git "$TEMPDIR/osbuild-composer"
+
+pushd "$TEMPDIR/osbuild-composer"
+    sed -i 's#module github.com/osbuild/osbuild-composer#module github.com/ondrejbudai/osbuild-composer-public#' go.mod
+
+    find -name '*.go' -not -path './vendor/*' | xargs -L1 sed -i "s#github.com/osbuild/osbuild-composer#github.com/ondrejbudai/osbuild-composer-public#"
+    find -name '*.go' -not -path './vendor/*' | xargs -L1 sed -i "s#github.com/ondrejbudai/osbuild-composer-public/internal#github.com/ondrejbudai/osbuild-composer-public/public#"
+
+    mv internal public
+
+    cp "$SCRIPT_DIR/README.md.template" README.md
+    mkdir .public
+    cp -a "$SCRIPT_DIR/." .public/
+    rm -rf test/data
+    rm -rf .github/workflows
+    rm .github/dependabot.yml
+
+    git rev-parse HEAD >.source-commit
+    rm -rf .git
+popd
+
+mv .github/workflows "$TEMPDIR"
+mv .git "$TEMPDIR"
+find -mindepth 1 -maxdepth 1 | rm -rf
+
+cp -a "$TEMPDIR/osbuild-composer/." .
+mv "$TEMPDIR/.git" .
+mv "$TEMPDIR/workflows" .github/
