@@ -31,7 +31,7 @@ popd
 
 mv .github/workflows "$TEMPDIR"
 mv .git "$TEMPDIR"
-find -mindepth 1 -maxdepth 1 | rm -rf
+find -mindepth 1 -maxdepth 1 | xargs rm -rf
 
 cp -a "$TEMPDIR/osbuild-composer/." .
 mv "$TEMPDIR/.git" .
