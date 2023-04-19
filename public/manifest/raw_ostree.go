@@ -1,6 +1,8 @@
 package manifest
 
 import (
+	"fmt"
+
 	"github.com/ondrejbudai/osbuild-composer-public/public/artifact"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
 	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
@@ -60,9 +62,33 @@ func (p *RawOSTreeImage) serialize() osbuild.Pipeline {
 	}
 
 	inputName := "root-tree"
-	copyOptions, copyDevices, copyMounts := osbuild.GenCopyFSTreeOptions(inputName, p.treePipeline.Name(), p.Filename, pt)
-	copyInputs := osbuild.NewPipelineTreeInputs(inputName, p.treePipeline.Name())
-	pipeline.AddStage(osbuild.NewCopyStage(copyOptions, copyInputs, copyDevices, copyMounts))
+	treeCopyOptions, treeCopyDevices, treeCopyMounts := osbuild.GenCopyFSTreeOptions(inputName, p.treePipeline.Name(), p.Filename, pt)
+	treeCopyInputs := osbuild.NewPipelineTreeInputs(inputName, p.treePipeline.Name())
+
+	pipeline.AddStage(osbuild.NewCopyStage(treeCopyOptions, treeCopyInputs, treeCopyDevices, treeCopyMounts))
+
+	bootFiles := p.platform.GetBootFiles()
+	if len(bootFiles) > 0 {
+		// we ignore the bootcopyoptions as they contain a full tree copy instead we make our own, we *do* still want all the other
+		// information such as mountpoints and devices
+		_, bootCopyDevices, bootCopyMounts := osbuild.GenCopyFSTreeOptions(inputName, p.treePipeline.Name(), p.Filename, pt)
+		bootCopyOptions := &osbuild.CopyStageOptions{}
+
+		commitChecksum := p.treePipeline.commit.Checksum
+
+		bootCopyInputs := osbuild.OSTreeCheckoutInputs{
+			"ostree-tree": *osbuild.NewOSTreeCheckoutInput("org.osbuild.source", commitChecksum),
+		}
+
+		for _, paths := range bootFiles {
+			bootCopyOptions.Paths = append(bootCopyOptions.Paths, osbuild.CopyStagePath{
+				From: fmt.Sprintf("input://ostree-tree/%s%s", commitChecksum, paths[0]),
+				To:   fmt.Sprintf("mount://root%s", paths[1]),
+			})
+		}
+
+		pipeline.AddStage(osbuild.NewCopyStage(bootCopyOptions, bootCopyInputs, bootCopyDevices, bootCopyMounts))
+	}
 
 	for _, stage := range osbuild.GenImageFinishStages(pt, p.Filename) {
 		pipeline.AddStage(stage)
