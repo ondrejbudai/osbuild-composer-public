@@ -139,7 +139,8 @@
             "source": "registry.gitlab.com/redhat/services/products/image-builder/ci/osbuild-composer/fedora-minimal"
           },
           {
-            "source": "registry.gitlab.com/redhat/services/products/image-builder/ci/osbuild-composer/manifest-list-test"
+            "source": "registry.gitlab.com/redhat/services/products/image-builder/ci/osbuild-composer/manifest-list-test",
+            "name": "registry.gitlab.com/redhat/services/products/image-builder/ci/osbuild-composer/manifest-list-test:v1"
           }
         ]
       }
@@ -315,7 +316,8 @@
             "source": "registry.gitlab.com/redhat/services/products/image-builder/ci/osbuild-composer/fedora-minimal"
           },
           {
-            "source": "registry.gitlab.com/redhat/services/products/image-builder/ci/osbuild-composer/manifest-list-test"
+            "source": "registry.gitlab.com/redhat/services/products/image-builder/ci/osbuild-composer/manifest-list-test",
+            "name": "manifest-list-test:v1"
           }
         ]
       }
@@ -861,6 +863,11 @@
               ],
               "uid": 1020,
               "gid": 1050
+            },
+            {
+              "name": "user3",
+              "uid": 1060,
+              "gid": 1060
             }
           ],
           "group": [
@@ -871,6 +878,10 @@
             {
               "name": "group2",
               "gid": 1050
+            },
+            {
+              "name": "user3",
+              "gid": 1060
             }
           ],
           "timezone": {
