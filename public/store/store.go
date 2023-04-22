@@ -4,6 +4,8 @@ package store
 
 import (
 	"crypto/rand"
+	"strings"
+
 	// The use of SHA1 is valid here
 	/* #nosec G505 */
 	"crypto/sha1"
@@ -580,17 +582,23 @@ func (s *Store) GetAllDistroSources(distro string) map[string]SourceConfig {
 
 func NewSourceConfig(repo rpmmd.RepoConfig, system bool) SourceConfig {
 	sc := SourceConfig{
-		Name:         repo.Name,
-		CheckGPG:     repo.CheckGPG,
-		CheckSSL:     !repo.IgnoreSSL,
-		System:       system,
-		RHSM:         repo.RHSM,
-		CheckRepoGPG: repo.CheckRepoGPG,
-		GPGKeys:      repo.GPGKeys,
+		Name:     repo.Name,
+		System:   system,
+		RHSM:     repo.RHSM,
+		GPGKeys:  repo.GPGKeys,
+		CheckSSL: !repo.IgnoreSSL,
 	}
 
-	if repo.BaseURL != "" {
-		sc.URL = repo.BaseURL
+	if repo.CheckGPG != nil {
+		sc.CheckGPG = *repo.CheckGPG
+	}
+
+	if repo.CheckRepoGPG != nil {
+		sc.CheckRepoGPG = *repo.CheckRepoGPG
+	}
+
+	if len(repo.BaseURLs) != 0 {
+		sc.URL = strings.Join(repo.BaseURLs, ",")
 		sc.Type = "yum-baseurl"
 	} else if repo.Metalink != "" {
 		sc.URL = repo.Metalink
@@ -608,13 +616,18 @@ func (s *SourceConfig) RepoConfig(name string) rpmmd.RepoConfig {
 
 	repo.Name = name
 	repo.IgnoreSSL = !s.CheckSSL
-	repo.CheckGPG = s.CheckGPG
+	repo.CheckGPG = &s.CheckGPG
 	repo.RHSM = s.RHSM
-	repo.CheckRepoGPG = s.CheckRepoGPG
+	repo.CheckRepoGPG = &s.CheckRepoGPG
 	repo.GPGKeys = s.GPGKeys
 
+	var urls []string
+	if s.URL != "" {
+		urls = []string{s.URL}
+	}
+
 	if s.Type == "yum-baseurl" {
-		repo.BaseURL = s.URL
+		repo.BaseURLs = urls
 	} else if s.Type == "yum-metalink" {
 		repo.Metalink = s.URL
 	} else if s.Type == "yum-mirrorlist" {

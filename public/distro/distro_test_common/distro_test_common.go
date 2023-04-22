@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
+	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/container"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
@@ -62,18 +63,21 @@ func TestDistro_Manifest(t *testing.T, pipelinePath string, prefix string, regis
 
 		repos := make([]rpmmd.RepoConfig, len(tt.ComposeRequest.Repositories))
 		for i, repo := range tt.ComposeRequest.Repositories {
+			var urls []string
+			if repo.BaseURL != "" {
+				urls = []string{repo.BaseURL}
+			}
 			var keys []string
 			if repo.GPGKey != "" {
 				keys = []string{repo.GPGKey}
 			}
-
 			repos[i] = rpmmd.RepoConfig{
 				Name:        fmt.Sprintf("repo-%d", i),
-				BaseURL:     repo.BaseURL,
+				BaseURLs:    urls,
 				Metalink:    repo.Metalink,
 				MirrorList:  repo.MirrorList,
 				GPGKeys:     keys,
-				CheckGPG:    repo.CheckGPG,
+				CheckGPG:    common.ToPtr(repo.CheckGPG),
 				PackageSets: repo.PackageSets,
 			}
 		}

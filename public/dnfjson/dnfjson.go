@@ -262,22 +262,29 @@ func (s *Solver) reposFromRPMMD(rpmRepos []rpmmd.RepoConfig) ([]repoConfig, erro
 		dr := repoConfig{
 			ID:             rr.Hash(),
 			Name:           rr.Name,
-			BaseURL:        rr.BaseURL,
+			BaseURLs:       rr.BaseURLs,
 			Metalink:       rr.Metalink,
 			MirrorList:     rr.MirrorList,
 			GPGKeys:        rr.GPGKeys,
-			CheckGPG:       rr.CheckGPG,
-			CheckRepoGPG:   rr.CheckRepoGPG,
 			IgnoreSSL:      rr.IgnoreSSL,
 			MetadataExpire: rr.MetadataExpire,
 		}
+
+		if rr.CheckGPG != nil {
+			dr.CheckGPG = *rr.CheckGPG
+		}
+
+		if rr.CheckRepoGPG != nil {
+			dr.CheckRepoGPG = *rr.CheckRepoGPG
+		}
+
 		if rr.RHSM {
 			if s.subscriptions == nil {
 				return nil, fmt.Errorf("This system does not have any valid subscriptions. Subscribe it before specifying rhsm: true in sources.")
 			}
-			secrets, err := s.subscriptions.GetSecretsForBaseurl(rr.BaseURL, s.arch, s.releaseVer)
+			secrets, err := s.subscriptions.GetSecretsForBaseurl(rr.BaseURLs, s.arch, s.releaseVer)
 			if err != nil {
-				return nil, fmt.Errorf("RHSM secrets not found on the host for this baseurl: %s", rr.BaseURL)
+				return nil, fmt.Errorf("RHSM secrets not found on the host for this baseurl: %s", rr.BaseURLs)
 			}
 			dr.SSLCACert = secrets.SSLCACert
 			dr.SSLClientKey = secrets.SSLClientKey
@@ -293,7 +300,7 @@ func (s *Solver) reposFromRPMMD(rpmRepos []rpmmd.RepoConfig) ([]repoConfig, erro
 type repoConfig struct {
 	ID             string   `json:"id"`
 	Name           string   `json:"name,omitempty"`
-	BaseURL        string   `json:"baseurl,omitempty"`
+	BaseURLs       []string `json:"baseurl,omitempty"`
 	Metalink       string   `json:"metalink,omitempty"`
 	MirrorList     string   `json:"mirrorlist,omitempty"`
 	GPGKeys        []string `json:"gpgkeys,omitempty"`
@@ -317,7 +324,7 @@ func (r *repoConfig) Hash() string {
 	ats := func(s []string) string {
 		return strings.Join(s, "")
 	}
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(r.BaseURL+
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(ats(r.BaseURLs)+
 		r.Metalink+
 		r.MirrorList+
 		ats(r.GPGKeys)+
@@ -457,7 +464,9 @@ func (pkgs packageSpecs) toRPMMD(repos map[string]rpmmd.RepoConfig) []rpmmd.Pack
 		rpmDependencies[i].Arch = dep.Arch
 		rpmDependencies[i].RemoteLocation = dep.RemoteLocation
 		rpmDependencies[i].Checksum = dep.Checksum
-		rpmDependencies[i].CheckGPG = repo.CheckGPG
+		if repo.CheckGPG != nil {
+			rpmDependencies[i].CheckGPG = *repo.CheckGPG
+		}
 		rpmDependencies[i].IgnoreSSL = repo.IgnoreSSL
 		if repo.RHSM {
 			rpmDependencies[i].Secrets = "org.osbuild.rhsm"
@@ -577,8 +586,8 @@ func parseError(data []byte, repos []repoConfig) Error {
 	for _, repo := range repos {
 		idstr := fmt.Sprintf("'%s'", repo.ID)
 		var nameURL string
-		if len(repo.BaseURL) > 0 {
-			nameURL = repo.BaseURL
+		if len(repo.BaseURLs) > 0 {
+			nameURL = strings.Join(repo.BaseURLs, ",")
 		} else if len(repo.Metalink) > 0 {
 			nameURL = repo.Metalink
 		} else if len(repo.MirrorList) > 0 {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 
+	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/container"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
@@ -18,14 +19,17 @@ import (
 )
 
 type repository struct {
-	Name        string   `json:"name,omitempty"`
-	BaseURL     string   `json:"baseurl,omitempty"`
-	Metalink    string   `json:"metalink,omitempty"`
-	MirrorList  string   `json:"mirrorlist,omitempty"`
-	GPGKey      string   `json:"gpgkey,omitempty"`
-	CheckGPG    bool     `json:"check_gpg,omitempty"`
-	PackageSets []string `json:"package_sets,omitempty"`
-	RHSM        bool     `json:"rhsm,omitempty"`
+	Id           string   `json:"id,omitempty"`
+	Name         string   `json:"name,omitempty"`
+	BaseURL      string   `json:"baseurl,omitempty"`
+	Metalink     string   `json:"metalink,omitempty"`
+	MirrorList   string   `json:"mirrorlist,omitempty"`
+	GPGKey       string   `json:"gpgkey,omitempty"`
+	CheckGPG     bool     `json:"check_gpg,omitempty"`
+	CheckRepoGPG bool     `json:"repo_check_gpg,omitempty"`
+	IgnoreSSL    bool     `json:"ignore_ssl,omitempty"`
+	PackageSets  []string `json:"package_sets,omitempty"`
+	RHSM         bool     `json:"rhsm,omitempty"`
 }
 
 type ostreeOptions struct {
@@ -140,21 +144,31 @@ func main() {
 		if repoName == "" {
 			repoName = fmt.Sprintf("repo-%d", i)
 		}
-
+		repoId := repo.Id
+		if repoId == "" {
+			repoId = fmt.Sprintf("repo-%d", i)
+		}
+		var urls []string
+		if repo.BaseURL != "" {
+			urls = []string{repo.BaseURL}
+		}
 		var keys []string
 		if repo.GPGKey != "" {
 			keys = []string{repo.GPGKey}
 		}
 
 		repos[i] = rpmmd.RepoConfig{
-			Name:        repoName,
-			BaseURL:     repo.BaseURL,
-			Metalink:    repo.Metalink,
-			MirrorList:  repo.MirrorList,
-			GPGKeys:     keys,
-			CheckGPG:    repo.CheckGPG,
-			PackageSets: repo.PackageSets,
-			RHSM:        repo.RHSM,
+			Id:           repoId,
+			Name:         repoName,
+			BaseURLs:     urls,
+			Metalink:     repo.Metalink,
+			MirrorList:   repo.MirrorList,
+			GPGKeys:      keys,
+			CheckGPG:     &repo.CheckGPG,
+			CheckRepoGPG: common.ToPtr(false),
+			IgnoreSSL:    false,
+			PackageSets:  repo.PackageSets,
+			RHSM:         repo.RHSM,
 		}
 	}
 

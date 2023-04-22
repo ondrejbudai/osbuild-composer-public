@@ -28,18 +28,24 @@ type repository struct {
 }
 
 type RepoConfig struct {
-	Name           string
-	BaseURL        string
-	Metalink       string
-	MirrorList     string
-	GPGKeys        []string
-	CheckGPG       bool
-	CheckRepoGPG   bool
-	IgnoreSSL      bool
-	MetadataExpire string
-	RHSM           bool
-	ImageTypeTags  []string
-	PackageSets    []string
+	// the repo id is not always required and is ignored in some cases.
+	// For example, it is not required in dnf-json, but it is a required
+	// field for creating a repo file in `/etc/yum.repos.d/`
+	Id             string   `json:"id,omitempty"`
+	Name           string   `json:"name,omitempty"`
+	BaseURLs       []string `json:"baseurls,omitempty"`
+	Metalink       string   `json:"metalink,omitempty"`
+	MirrorList     string   `json:"mirrorlist,omitempty"`
+	GPGKeys        []string `json:"gpgkeys,omitempty"`
+	CheckGPG       *bool    `json:"check_gpg,omitempty"`
+	CheckRepoGPG   *bool    `json:"check_repo_gpg,omitempty"`
+	Priority       *int     `json:"priority,omitempty"`
+	IgnoreSSL      bool     `json:"ignore_ssl,omitempty"`
+	MetadataExpire string   `json:"metadata_expire,omitempty"`
+	RHSM           bool     `json:"rhsm,omitempty"`
+	Enabled        *bool    `json:"enabled,omitempty"`
+	ImageTypeTags  []string `json:"image_type_tags,omitempty"`
+	PackageSets    []string `json:"package_sets,omitempty"`
 }
 
 // Hash calculates an ID string that uniquely represents a repository
@@ -49,15 +55,18 @@ func (r *RepoConfig) Hash() string {
 	bts := func(b bool) string {
 		return fmt.Sprintf("%T", b)
 	}
+	bpts := func(b *bool) string {
+		return fmt.Sprintf("%T", b)
+	}
 	ats := func(s []string) string {
 		return strings.Join(s, "")
 	}
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(r.BaseURL+
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(ats(r.BaseURLs)+
 		r.Metalink+
 		r.MirrorList+
 		ats(r.GPGKeys)+
-		bts(r.CheckGPG)+
-		bts(r.CheckRepoGPG)+
+		bpts(r.CheckGPG)+
+		bpts(r.CheckRepoGPG)+
 		bts(r.IgnoreSSL)+
 		r.MetadataExpire+
 		bts(r.RHSM))))
@@ -223,18 +232,21 @@ func loadRepositoriesFromFile(filename string) (map[string][]RepoConfig, error) 
 
 	for arch, repos := range reposMap {
 		for _, repo := range repos {
+			var urls []string
+			if repo.BaseURL != "" {
+				urls = []string{repo.BaseURL}
+			}
 			var keys []string
 			if repo.GPGKey != "" {
 				keys = []string{repo.GPGKey}
 			}
-
 			config := RepoConfig{
 				Name:           repo.Name,
-				BaseURL:        repo.BaseURL,
+				BaseURLs:       urls,
 				Metalink:       repo.Metalink,
 				MirrorList:     repo.MirrorList,
 				GPGKeys:        keys,
-				CheckGPG:       repo.CheckGPG,
+				CheckGPG:       &repo.CheckGPG,
 				RHSM:           repo.RHSM,
 				MetadataExpire: repo.MetadataExpire,
 				ImageTypeTags:  repo.ImageTypeTags,
@@ -374,4 +386,58 @@ func (packages PackageList) ToPackageInfos() []PackageInfo {
 	}
 
 	return results
+}
+
+// Backwards compatibility for old workers:
+// This was added since the custom repository
+// PR changes the baseurl field to a list of baseurls.
+// This can be removed after 3 releases since the
+// old-worker-regression test tests the current
+// osbuild-composer with a worker from 3 releases ago
+func (r RepoConfig) MarshalJSON() ([]byte, error) {
+	type aliasType RepoConfig
+	type compatType struct {
+		aliasType
+
+		BaseURL string `json:"baseurl,omitempty"`
+	}
+	compatRepo := compatType{
+		aliasType: aliasType(r),
+	}
+
+	var baseUrl string
+	if len(r.BaseURLs) > 0 {
+		baseUrl = strings.Join(r.BaseURLs, ",")
+	}
+
+	compatRepo.BaseURL = baseUrl
+
+	return json.Marshal(compatRepo)
+}
+
+// Backwards compatibility for old workers:
+// This was added since the custom repository
+// PR changes the baseurl field to a list of baseurls.
+// This can be removed after 3 releases since the
+// old-worker-regression test tests the current
+// osbuild-composer with a worker from 3 releases ago
+func (r *RepoConfig) UnmarshalJSON(data []byte) error {
+	type aliasType RepoConfig
+	type compatType struct {
+		aliasType
+
+		BaseURL string `json:"baseurl,omitempty"`
+	}
+
+	var compatRepo compatType
+	if err := json.Unmarshal(data, &compatRepo); err != nil {
+		return err
+	}
+
+	if compatRepo.BaseURL != "" {
+		compatRepo.BaseURLs = strings.Split(compatRepo.BaseURL, ",")
+	}
+
+	*r = RepoConfig(compatRepo.aliasType)
+	return nil
 }

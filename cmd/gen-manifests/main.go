@@ -38,11 +38,14 @@ func (mv *multiValue) Set(v string) error {
 
 type repository struct {
 	Name           string   `json:"name"`
+	Id             string   `json:"id,omitempty"`
 	BaseURL        string   `json:"baseurl,omitempty"`
 	Metalink       string   `json:"metalink,omitempty"`
 	MirrorList     string   `json:"mirrorlist,omitempty"`
 	GPGKey         string   `json:"gpgkey,omitempty"`
 	CheckGPG       bool     `json:"check_gpg,omitempty"`
+	CheckRepoGPG   bool     `json:"check_repo_gpg,omitempty"`
+	IgnoreSSL      bool     `json:"ignore_ssl,omitempty"`
 	RHSM           bool     `json:"rhsm,omitempty"`
 	MetadataExpire string   `json:"metadata_expire,omitempty"`
 	ImageTypeTags  []string `json:"image_type_tags,omitempty"`
@@ -187,20 +190,26 @@ func makeManifestJob(name string, imgType distro.ImageType, cr composeRequest, d
 type DistroArchRepoMap map[string]map[string][]repository
 
 func convertRepo(r repository) rpmmd.RepoConfig {
+	var urls []string
+	if r.BaseURL != "" {
+		urls = []string{r.BaseURL}
+	}
+
 	var keys []string
 	if r.GPGKey != "" {
 		keys = []string{r.GPGKey}
 	}
 
 	return rpmmd.RepoConfig{
+		Id:             r.Id,
 		Name:           r.Name,
-		BaseURL:        r.BaseURL,
+		BaseURLs:       urls,
 		Metalink:       r.Metalink,
 		MirrorList:     r.MirrorList,
 		GPGKeys:        keys,
-		CheckGPG:       r.CheckGPG,
-		CheckRepoGPG:   false,
-		IgnoreSSL:      false,
+		CheckGPG:       &r.CheckGPG,
+		CheckRepoGPG:   &r.CheckRepoGPG,
+		IgnoreSSL:      r.IgnoreSSL,
 		MetadataExpire: r.MetadataExpire,
 		RHSM:           r.RHSM,
 		ImageTypeTags:  r.ImageTypeTags,

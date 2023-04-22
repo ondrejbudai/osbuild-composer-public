@@ -65,13 +65,13 @@ func TestCollectRepos(t *testing.T) {
 	}
 
 	expectedRepos := []rpmmd.RepoConfig{
-		{BaseURL: "http://example.com/baseos", PackageSets: nil},
-		{BaseURL: "http://example.com/appstream", PackageSets: nil},
-		{BaseURL: "http://example.com/baseos-rhel7", PackageSets: []string{"build"}},
-		{BaseURL: "http://example.com/extra-tools", PackageSets: []string{"build", "archive"}},
-		{BaseURL: "http://example.com/custom-os-stuff", PackageSets: []string{"blueprint"}},
-		{BaseURL: "http://example.com/repoone", PackageSets: []string{"blueprint"}},
-		{BaseURL: "http://example.com/repotwo", PackageSets: []string{"blueprint"}},
+		{BaseURLs: []string{"http://example.com/baseos"}, PackageSets: nil},
+		{BaseURLs: []string{"http://example.com/appstream"}, PackageSets: nil},
+		{BaseURLs: []string{"http://example.com/baseos-rhel7"}, PackageSets: []string{"build"}},
+		{BaseURLs: []string{"http://example.com/extra-tools"}, PackageSets: []string{"build", "archive"}},
+		{BaseURLs: []string{"http://example.com/custom-os-stuff"}, PackageSets: []string{"blueprint"}},
+		{BaseURLs: []string{"http://example.com/repoone"}, PackageSets: []string{"blueprint"}},
+		{BaseURLs: []string{"http://example.com/repotwo"}, PackageSets: []string{"blueprint"}},
 	}
 
 	payloadPkgSets := []string{"blueprint"}
@@ -104,11 +104,11 @@ func TestRepoConfigConversion(t *testing.T) {
 			},
 			repoConfig: rpmmd.RepoConfig{
 				Name:           "",
-				BaseURL:        "http://base.url",
+				BaseURLs:       []string{"http://base.url"},
 				Metalink:       "",
 				MirrorList:     "",
 				GPGKeys:        []string{"some-kind-of-key"},
-				CheckGPG:       true,
+				CheckGPG:       common.ToPtr(true),
 				IgnoreSSL:      false,
 				MetadataExpire: "",
 				RHSM:           false,
@@ -128,10 +128,10 @@ func TestRepoConfigConversion(t *testing.T) {
 			},
 			repoConfig: rpmmd.RepoConfig{
 				Name:           "",
-				BaseURL:        "http://base.url",
+				BaseURLs:       []string{"http://base.url"},
 				Metalink:       "", // since BaseURL is specified, MetaLink is not copied
 				MirrorList:     "", // since BaseURL is specified, MirrorList is not copied
-				CheckGPG:       false,
+				CheckGPG:       nil,
 				IgnoreSSL:      true,
 				MetadataExpire: "",
 				RHSM:           false,
@@ -151,10 +151,9 @@ func TestRepoConfigConversion(t *testing.T) {
 			},
 			repoConfig: rpmmd.RepoConfig{
 				Name:           "",
-				BaseURL:        "",
 				Metalink:       "", // since MirrorList is specified, MetaLink is not copied
 				MirrorList:     "http://example.org/mirrorlist",
-				CheckGPG:       false,
+				CheckGPG:       nil,
 				IgnoreSSL:      true,
 				MetadataExpire: "",
 				RHSM:           false,
@@ -174,10 +173,9 @@ func TestRepoConfigConversion(t *testing.T) {
 			},
 			repoConfig: rpmmd.RepoConfig{
 				Name:           "",
-				BaseURL:        "",
 				Metalink:       "http://example.org/metalink",
 				MirrorList:     "",
-				CheckGPG:       false,
+				CheckGPG:       nil,
 				IgnoreSSL:      true,
 				MetadataExpire: "",
 				RHSM:           true,
@@ -189,7 +187,7 @@ func TestRepoConfigConversion(t *testing.T) {
 	for idx, tc := range testCases {
 		rc, err := genRepoConfig(tc.repo)
 		assert.NoError(err)
-		assert.Equal(rc, &tc.repoConfig, "mismatch in test case %d", idx)
+		assert.Equal(&tc.repoConfig, rc, "mismatch in test case %d", idx)
 	}
 
 	errorTestCases := []struct {
@@ -214,7 +212,6 @@ func TestRepoConfigConversion(t *testing.T) {
 		// check gpg required but no gpgkey given
 		{
 			repo: Repository{
-				Baseurl:     nil,
 				CheckGpg:    common.ToPtr(true),
 				Gpgkey:      nil,
 				IgnoreSsl:   common.ToPtr(true),

@@ -1352,8 +1352,8 @@ func genRepoConfig(repo Repository) (*rpmmd.RepoConfig, error) {
 
 	repoConfig.RHSM = repo.Rhsm != nil && *repo.Rhsm
 
-	if repo.Baseurl != nil {
-		repoConfig.BaseURL = *repo.Baseurl
+	if repo.Baseurl != nil && *repo.Baseurl != "" {
+		repoConfig.BaseURLs = []string{*repo.Baseurl}
 	} else if repo.Mirrorlist != nil {
 		repoConfig.MirrorList = *repo.Mirrorlist
 	} else if repo.Metalink != nil {
@@ -1363,7 +1363,7 @@ func genRepoConfig(repo Repository) (*rpmmd.RepoConfig, error) {
 	}
 
 	if repo.CheckGpg != nil {
-		repoConfig.CheckGPG = *repo.CheckGpg
+		repoConfig.CheckGPG = repo.CheckGpg
 	}
 	if repo.Gpgkey != nil && *repo.Gpgkey != "" {
 		repoConfig.GPGKeys = []string{*repo.Gpgkey}
@@ -1372,10 +1372,10 @@ func genRepoConfig(repo Repository) (*rpmmd.RepoConfig, error) {
 		repoConfig.IgnoreSSL = *repo.IgnoreSsl
 	}
 	if repo.CheckRepoGpg != nil {
-		repoConfig.CheckRepoGPG = *repo.CheckRepoGpg
+		repoConfig.CheckRepoGPG = repo.CheckRepoGpg
 	}
 
-	if repoConfig.CheckGPG && len(repoConfig.GPGKeys) == 0 {
+	if repoConfig.CheckGPG != nil && *repoConfig.CheckGPG && len(repoConfig.GPGKeys) == 0 {
 		return nil, HTTPError(ErrorNoGPGKey)
 	}
 

@@ -6,13 +6,14 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
+	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 )
 
 func TestNewYumReposStage(t *testing.T) {
-	stageOptions := NewYumReposStageOptions("testing.repo", []YumRepository{
+	stageOptions := NewYumReposStageOptions("testing.repo", []rpmmd.RepoConfig{
 		{
-			Id:      "cool-id",
-			BaseURL: []string{"http://example.org/repo"},
+			Id:       "cool-id",
+			BaseURLs: []string{"http://example.org/repo"},
 		},
 	})
 	expectedStage := &Stage{
@@ -48,8 +49,8 @@ func TestYumReposStageOptionsValidate(t *testing.T) {
 				Filename: "@#$%^&.rap",
 				Repos: []YumRepository{
 					{
-						Id:      "cool-id",
-						BaseURL: []string{"http://example.org/repo"},
+						Id:       "cool-id",
+						BaseURLs: []string{"http://example.org/repo"},
 					},
 				},
 			},
@@ -60,8 +61,8 @@ func TestYumReposStageOptionsValidate(t *testing.T) {
 			options: YumReposStageOptions{
 				Repos: []YumRepository{
 					{
-						Id:      "cool-id",
-						BaseURL: []string{"http://example.org/repo"},
+						Id:       "cool-id",
+						BaseURLs: []string{"http://example.org/repo"},
 					},
 				},
 			},
@@ -85,8 +86,8 @@ func TestYumReposStageOptionsValidate(t *testing.T) {
 				Filename: "test.repo",
 				Repos: []YumRepository{
 					{
-						Id:      "cool-id",
-						BaseURL: []string{""},
+						Id:       "cool-id",
+						BaseURLs: []string{""},
 					},
 				},
 			},
@@ -98,9 +99,9 @@ func TestYumReposStageOptionsValidate(t *testing.T) {
 				Filename: "test.repo",
 				Repos: []YumRepository{
 					{
-						Id:      "cool-id",
-						BaseURL: []string{"http://example.org/repo"},
-						GPGKey:  []string{""},
+						Id:       "cool-id",
+						BaseURLs: []string{"http://example.org/repo"},
+						GPGKey:   []string{""},
 					},
 				},
 			},
@@ -112,8 +113,8 @@ func TestYumReposStageOptionsValidate(t *testing.T) {
 				Filename: "test.repo",
 				Repos: []YumRepository{
 					{
-						Id:      "c@@l-id",
-						BaseURL: []string{"http://example.org/repo"},
+						Id:       "c@@l-id",
+						BaseURLs: []string{"http://example.org/repo"},
 					},
 				},
 			},
@@ -132,7 +133,7 @@ func TestYumReposStageOptionsValidate(t *testing.T) {
 						Name:           "c@@l-name",
 						GPGCheck:       common.ToPtr(true),
 						RepoGPGCheck:   common.ToPtr(true),
-						BaseURL:        []string{"http://example.org/repo"},
+						BaseURLs:       []string{"http://example.org/repo"},
 						GPGKey:         []string{"secretkey"},
 					},
 				},
