@@ -19,5 +19,5 @@ jobs:
           git config --global user.name 'github automation'
           git config --global user.email 'github-automation@budai.cz'
           git add .
-          git commit -m "Update to $(cat .source-commit)"
+          git commit -m "Update to $(cat .source-commit)" || true
           git push
