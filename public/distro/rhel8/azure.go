@@ -20,7 +20,7 @@ func azureRhuiImgType() imageType {
 		packageSets: map[string]packageSetFunc{
 			osPkgsKey: azureRhuiPackageSet,
 		},
-		defaultImageConfig:  defaultAzureRhuiImageConfig.InheritFrom(defaultAzureImageConfig),
+		defaultImageConfig:  defaultAzureRhuiImageConfig.InheritFrom(defaultVhdImageConfig()),
 		kernelOptions:       defaultAzureKernelOptions,
 		bootable:            true,
 		defaultSize:         64 * common.GibiByte,
@@ -61,7 +61,7 @@ func azureByosImgType() imageType {
 		packageSets: map[string]packageSetFunc{
 			osPkgsKey: azurePackageSet,
 		},
-		defaultImageConfig:  defaultAzureByosImageConfig.InheritFrom(defaultAzureImageConfig),
+		defaultImageConfig:  defaultAzureByosImageConfig.InheritFrom(defaultVhdImageConfig()),
 		kernelOptions:       defaultAzureKernelOptions,
 		bootable:            true,
 		defaultSize:         4 * common.GibiByte,
@@ -82,7 +82,7 @@ func azureImgType() imageType {
 		packageSets: map[string]packageSetFunc{
 			osPkgsKey: azurePackageSet,
 		},
-		defaultImageConfig:  defaultAzureImageConfig,
+		defaultImageConfig:  defaultVhdImageConfig(),
 		kernelOptions:       defaultAzureKernelOptions,
 		bootable:            true,
 		defaultSize:         4 * common.GibiByte,
@@ -95,50 +95,25 @@ func azureImgType() imageType {
 }
 
 func azureEap7RhuiImgType() imageType {
-	it := azureRhuiImgType()
-	it.name = "azure-eap7-rhui"
-	it.nameAliases = nil // make sure we don't inherit aliases from the base image type
-	it.workload = eapWorkload()
-
-	// shell env vars for EAP
-	wildflyPath := "/opt/rh/eap7/root/usr/share/wildfly"
-	it.defaultImageConfig.ShellInit = []shell.InitFile{
-		{
-			Filename: "eap_env.sh",
-			Variables: []shell.EnvironmentVariable{
-				{
-					Key:   "EAP_HOME",
-					Value: wildflyPath,
-				},
-				{
-					Key:   "JBOSS_HOME",
-					Value: wildflyPath,
-				},
-			},
+	return imageType{
+		name:        "azure-eap7-rhui",
+		workload:    eapWorkload(),
+		filename:    "disk.vhd.xz",
+		mimeType:    "application/xz",
+		compression: "xz",
+		packageSets: map[string]packageSetFunc{
+			osPkgsKey: azureEapPackageSet,
 		},
+		defaultImageConfig:  defaultAzureEapImageConfig.InheritFrom(defaultAzureRhuiImageConfig.InheritFrom(defaultAzureImageConfig)),
+		kernelOptions:       defaultAzureKernelOptions,
+		bootable:            true,
+		defaultSize:         64 * common.GibiByte,
+		image:               liveImage,
+		buildPipelines:      []string{"build"},
+		payloadPipelines:    []string{"os", "image", "vpc", "xz"},
+		exports:             []string{"xz"},
+		basePartitionTables: azureRhuiBasePartitionTables,
 	}
-	it.defaultImageConfig.Firewall = &osbuild.FirewallStageOptions{
-		Ports: []string{
-			"23364:tcp", // modcluster
-			"25:tcp",    // mail
-			"3528:tcp",  // IIOP
-			"3529:tcp",  // IIOP-SSL
-			"45700:tcp", // Clustering subsystem
-			"4712:tcp",  // recovery manager
-			"4713:tcp",  // recovery manager
-			"54200:tcp", // Clustering subsystem
-			"54688:tcp", // Clustering subsystem
-			"55200:tcp", // Clustering subsystem
-			"57600:tcp", // Clustering subsystem
-			"7600:tcp",  // Clustering subsystem
-			"8009:tcp",  // AJP
-			"8080:tcp",  // HTTP
-			"8443:tcp",  // HTTPS
-			"9990:tcp",  // Management interface over HTTP
-			"9993:tcp",  // Management interface over HTTPS
-		},
-	}
-	return it
 }
 
 // PACKAGE SETS
@@ -150,37 +125,46 @@ func azureCommonPackageSet(t *imageType) rpmmd.PackageSet {
 			"@Server",
 			"NetworkManager",
 			"NetworkManager-cloud-setup",
+			"WALinuxAgent",
+			"bzip2",
+			"cloud-init",
+			"cloud-utils-growpart",
+			"cryptsetup-reencrypt",
+			"dracut-config-generic",
+			"dracut-norescue",
+			"efibootmgr",
+			"gdisk",
+			"hyperv-daemons",
 			"kernel",
 			"kernel-core",
 			"kernel-modules",
-			"selinux-policy-targeted",
-			"efibootmgr",
-			"lvm2",
-			"dracut-config-generic",
-			"dracut-norescue",
-			"bzip2",
 			"langpacks-en",
-			"yum-utils",
-			"WALinuxAgent",
-			"cloud-init",
-			"cloud-utils-growpart",
-			"gdisk",
-			"hyperv-daemons",
+			"lvm2",
 			"nvme-cli",
-			"cryptsetup-reencrypt",
-			"uuid",
-			"rng-tools",
 			"patch",
+			"rng-tools",
+			"selinux-policy-targeted",
+			"uuid",
+			"yum-utils",
 		},
 		Exclude: []string{
+			"NetworkManager-config-server",
 			"aic94xx-firmware",
 			"alsa-firmware",
 			"alsa-sof-firmware",
 			"alsa-tools-firmware",
+			"biosdevname",
+			"bolt",
+			"buildah",
+			"cockpit-podman",
+			"containernetworking-plugins",
+			"dnf-plugin-spacewalk",
 			"dracut-config-rescue",
+			"glibc-all-langpacks",
+			"iprutils",
 			"ivtv-firmware",
-			"iwl1000-firmware",
 			"iwl100-firmware",
+			"iwl1000-firmware",
 			"iwl105-firmware",
 			"iwl135-firmware",
 			"iwl2000-firmware",
@@ -198,25 +182,16 @@ func azureCommonPackageSet(t *imageType) rpmmd.PackageSet {
 			"libertas-sd8686-firmware",
 			"libertas-sd8787-firmware",
 			"libertas-usb8388-firmware",
-			"glibc-all-langpacks",
-			"biosdevname",
-			"cockpit-podman",
-			"bolt",
-			"buildah",
-			"containernetworking-plugins",
-			"dnf-plugin-spacewalk",
-			"iprutils",
 			"plymouth",
 			"podman",
 			"python3-dnf-plugin-spacewalk",
-			"python3-rhnlib",
 			"python3-hwdata",
-			"NetworkManager-config-server",
+			"python3-rhnlib",
+			"rhn-check",
 			"rhn-client-tools",
 			"rhn-setup",
-			"rhnsd",
-			"rhn-check",
 			"rhnlib",
+			"rhnsd",
 			"usb_modeswitch",
 		},
 	}.Append(bootPackageSet(t)).Append(distroSpecificPackageSet(t))
@@ -236,6 +211,9 @@ func azureCommonPackageSet(t *imageType) rpmmd.PackageSet {
 // Azure BYOS image package set
 func azurePackageSet(t *imageType) rpmmd.PackageSet {
 	return rpmmd.PackageSet{
+		Include: []string{
+			"firewalld",
+		},
 		Exclude: []string{
 			"alsa-lib",
 		},
@@ -246,6 +224,7 @@ func azurePackageSet(t *imageType) rpmmd.PackageSet {
 func azureRhuiPackageSet(t *imageType) rpmmd.PackageSet {
 	return rpmmd.PackageSet{
 		Include: []string{
+			"firewalld",
 			"rhui-azure-rhel8",
 		},
 		Exclude: []string{
@@ -260,9 +239,18 @@ func azureRhuiPackageSet(t *imageType) rpmmd.PackageSet {
 func azureSapPackageSet(t *imageType) rpmmd.PackageSet {
 	return rpmmd.PackageSet{
 		Include: []string{
+			"firewalld",
 			"rhui-azure-rhel8-sap-ha",
 		},
 	}.Append(azureCommonPackageSet(t)).Append(SapPackageSet(t))
+}
+
+func azureEapPackageSet(t *imageType) rpmmd.PackageSet {
+	return rpmmd.PackageSet{
+		Exclude: []string{
+			"firewalld",
+		},
+	}.Append(azureCommonPackageSet(t))
 }
 
 // PARTITION TABLES
@@ -502,7 +490,6 @@ var defaultAzureImageConfig = &distro.ImageConfig{
 		},
 	},
 	EnabledServices: []string{
-		"firewalld",
 		"nm-cloud-setup.service",
 		"nm-cloud-setup.timer",
 		"sshd",
@@ -697,6 +684,34 @@ var defaultAzureRhuiImageConfig = &distro.ImageConfig{
 	},
 }
 
+const wildflyPath = "/opt/rh/eap7/root/usr/share/wildfly"
+
+var defaultAzureEapImageConfig = &distro.ImageConfig{
+	// shell env vars for EAP
+	ShellInit: []shell.InitFile{
+		{
+			Filename: "eap_env.sh",
+			Variables: []shell.EnvironmentVariable{
+				{
+					Key:   "EAP_HOME",
+					Value: wildflyPath,
+				},
+				{
+					Key:   "JBOSS_HOME",
+					Value: wildflyPath,
+				},
+			},
+		},
+	},
+}
+
+func defaultVhdImageConfig() *distro.ImageConfig {
+	imageConfig := &distro.ImageConfig{
+		EnabledServices: append(defaultAzureImageConfig.EnabledServices, "firewalld"),
+	}
+	return imageConfig.InheritFrom(defaultAzureImageConfig)
+}
+
 func sapAzureImageConfig(rd distribution) *distro.ImageConfig {
-	return sapImageConfig(rd).InheritFrom(defaultAzureImageConfig)
+	return sapImageConfig(rd).InheritFrom(defaultVhdImageConfig())
 }
