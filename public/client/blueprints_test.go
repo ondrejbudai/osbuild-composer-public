@@ -966,6 +966,43 @@ func TestMultilibBlueprintDepsolveV0(t *testing.T) {
 	}
 }
 
+// depsolve a blueprint with package name glob
+func TestBlueprintDepsolveGlobsV0(t *testing.T) {
+	// Depends on real packages, only run as an integration test
+	if testState.unitTest {
+		t.Skip()
+	}
+	bp := `{
+		"name": "test-deps-blueprint-globs-v0",
+		"description": "CheckBlueprintDepsolveGlobsV0",
+		"version": "0.0.1",
+		"packages": [{"name": "tmux", "version": "*"},
+		{"name": "openssh-*", "version": "*"}]
+	}`
+
+	// Push a blueprint
+	resp, err := PostJSONBlueprintV0(testState.socket, bp)
+	require.NoError(t, err, "POST blueprint failed with a client error")
+	require.True(t, resp.Status, "POST blueprint failed: %#v", resp)
+
+	// Depsolve the blueprint
+	deps, api, err := DepsolveBlueprintV0(testState.socket, "test-deps-blueprint-globs-v0")
+	require.NoError(t, err, "Depsolve blueprint failed with a client error")
+	require.Nil(t, api, "DepsolveBlueprint failed: %#v", api)
+	require.Greater(t, len(deps.Blueprints), 0, "No blueprint dependencies returned")
+	require.Greater(t, len(deps.Blueprints[0].Dependencies), 2, "Not enough dependencies returned")
+
+	// Did it include tmux? Did it include openssh-clients and openssh-server?
+	var names []string
+	for _, d := range deps.Blueprints[0].Dependencies {
+		names = append(names, d.Name)
+	}
+	sort.Strings(names)
+	assert.True(t, common.IsStringInSortedSlice(names, "openssh-clients"))
+	assert.True(t, common.IsStringInSortedSlice(names, "openssh-server"))
+	assert.True(t, common.IsStringInSortedSlice(names, "tmux"))
+}
+
 // depsolve a non-existent blueprint
 func TestNonBlueprintDepsolveV0(t *testing.T) {
 	resp, api, err := DepsolveBlueprintV0(testState.socket, "test-deps-non-blueprint-v0")
@@ -1062,6 +1099,46 @@ func TestBlueprintFreezeV0(t *testing.T) {
 	require.Greater(t, len(frozen.Blueprints[0].Blueprint.Modules), 0, "No frozen modules returned")
 	require.Equal(t, "util-linux", frozen.Blueprints[0].Blueprint.Modules[0].Name, "Wrong module in frozen blueprint")
 	require.NotEqual(t, "*", frozen.Blueprints[0].Blueprint.Modules[0].Version, "Wrong version in frozen blueprint module")
+}
+
+func TestBlueprintFreezeGlobsV0(t *testing.T) {
+	// Test needs real packages, skip it for unit testing
+	if testState.unitTest {
+		t.Skip()
+	}
+
+	bp := `{
+		"name": "test-freeze-blueprint-glob-v0",
+		"description": "TestBlueprintFreezeGlobsV0",
+		"version": "0.0.1",
+		"packages": [{"name": "tmux", "version": "?.*"},
+		{"name": "openssh-*", "version": "*"}]
+	}`
+
+	// Push a blueprint
+	resp, err := PostJSONBlueprintV0(testState.socket, bp)
+	require.NoError(t, err, "POST blueprint failed with a client error")
+	require.True(t, resp.Status, "POST blueprint failed: %#v", resp)
+
+	// Freeze the blueprint
+	frozen, api, err := FreezeBlueprintV0(testState.socket, "test-freeze-blueprint-glob-v0")
+	require.NoError(t, err, "Freeze blueprint failed with a client error")
+	require.Nil(t, api, "FreezeBlueprint failed: %#v", api)
+	require.Greater(t, len(frozen.Blueprints), 0, "No frozen blueprints returned")
+	require.Greater(t, len(frozen.Blueprints[0].Blueprint.Packages), 0, "No frozen packages returned")
+
+	var names []string
+	for _, p := range frozen.Blueprints[0].Blueprint.Packages {
+		assert.NotContains(t, p.Version, "*")
+		assert.NotContains(t, p.Version, "?")
+		names = append(names, p.Name)
+	}
+	sort.Strings(names)
+	t.Log(names)
+	assert.True(t, common.IsStringInSortedSlice(names, "openssh-clients"))
+	assert.True(t, common.IsStringInSortedSlice(names, "openssh-server"))
+	assert.True(t, common.IsStringInSortedSlice(names, "tmux"))
+
 }
 
 // freeze a non-existent blueprint

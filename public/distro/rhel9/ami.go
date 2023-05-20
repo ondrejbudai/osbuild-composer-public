@@ -19,7 +19,6 @@ var (
 		},
 		kernelOptions:       amiKernelOptions,
 		bootable:            true,
-		bootType:            distro.LegacyBootType,
 		defaultSize:         10 * common.GibiByte,
 		image:               liveImage,
 		buildPipelines:      []string{"build"},
@@ -38,7 +37,6 @@ var (
 		},
 		kernelOptions:       amiKernelOptions,
 		bootable:            true,
-		bootType:            distro.LegacyBootType,
 		defaultSize:         10 * common.GibiByte,
 		image:               liveImage,
 		buildPipelines:      []string{"build"},
@@ -58,7 +56,6 @@ var (
 		},
 		kernelOptions:       amiKernelOptions,
 		bootable:            true,
-		bootType:            distro.LegacyBootType,
 		defaultSize:         10 * common.GibiByte,
 		image:               liveImage,
 		buildPipelines:      []string{"build"},
@@ -115,7 +112,6 @@ var (
 		},
 		kernelOptions:       "console=ttyS0,115200n8 console=tty0 net.ifnames=0 rd.blacklist=nouveau nvme_core.io_timeout=4294967295 processor.max_cstate=1 intel_idle.max_cstate=1",
 		bootable:            true,
-		bootType:            distro.LegacyBootType,
 		defaultSize:         10 * common.GibiByte,
 		image:               liveImage,
 		buildPipelines:      []string{"build"},
@@ -332,7 +328,7 @@ func ec2CommonPackageSet(t *imageType) rpmmd.PackageSet {
 			// RHBZ#2075815
 			"qemu-guest-agent",
 		},
-	}.Append(bootPackageSet(t)).Append(coreOsCommonPackageSet(t)).Append(distroSpecificPackageSet(t))
+	}.Append(coreOsCommonPackageSet(t)).Append(distroSpecificPackageSet(t))
 }
 
 // common rhel ec2 RHUI image package set

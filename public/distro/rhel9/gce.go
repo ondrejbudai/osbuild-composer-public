@@ -17,14 +17,14 @@ var (
 		packageSets: map[string]packageSetFunc{
 			osPkgsKey: gcePackageSet,
 		},
-		kernelOptions:       gceKernelOptions,
-		bootable:            true,
-		bootType:            distro.UEFIBootType,
-		defaultSize:         20 * common.GibiByte,
-		image:               liveImage,
-		buildPipelines:      []string{"build"},
-		payloadPipelines:    []string{"os", "image", "archive"},
-		exports:             []string{"archive"},
+		kernelOptions:    gceKernelOptions,
+		bootable:         true,
+		defaultSize:      20 * common.GibiByte,
+		image:            liveImage,
+		buildPipelines:   []string{"build"},
+		payloadPipelines: []string{"os", "image", "archive"},
+		exports:          []string{"archive"},
+		// TODO: the base partition table still contains the BIOS boot partition, but the image is UEFI-only
 		basePartitionTables: defaultBasePartitionTables,
 	}
 
@@ -35,14 +35,14 @@ var (
 		packageSets: map[string]packageSetFunc{
 			osPkgsKey: gceRhuiPackageSet,
 		},
-		kernelOptions:       gceKernelOptions,
-		bootable:            true,
-		bootType:            distro.UEFIBootType,
-		defaultSize:         20 * common.GibiByte,
-		image:               liveImage,
-		buildPipelines:      []string{"build"},
-		payloadPipelines:    []string{"os", "image", "archive"},
-		exports:             []string{"archive"},
+		kernelOptions:    gceKernelOptions,
+		bootable:         true,
+		defaultSize:      20 * common.GibiByte,
+		image:            liveImage,
+		buildPipelines:   []string{"build"},
+		payloadPipelines: []string{"os", "image", "archive"},
+		exports:          []string{"archive"},
+		// TODO: the base partition table still contains the BIOS boot partition, but the image is UEFI-only
 		basePartitionTables: defaultBasePartitionTables,
 	}
 )
@@ -276,7 +276,7 @@ func gceCommonPackageSet(t *imageType) rpmmd.PackageSet {
 			// RHBZ#2075815
 			"qemu-guest-agent",
 		},
-	}.Append(bootPackageSet(t)).Append(coreOsCommonPackageSet(t)).Append(distroSpecificPackageSet(t))
+	}.Append(coreOsCommonPackageSet(t)).Append(distroSpecificPackageSet(t))
 
 	// Some excluded packages are part of the @core group package set returned
 	// by coreOsCommonPackageSet(). Ensure that the conflicting packages are

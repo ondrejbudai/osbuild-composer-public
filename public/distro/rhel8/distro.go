@@ -194,28 +194,22 @@ func newDistro(name string, minor int) *distribution {
 
 	// Architecture definitions
 	x86_64 := architecture{
-		name:     distro.X86_64ArchName,
-		distro:   &rd,
-		legacy:   "i386-pc",
-		bootType: distro.HybridBootType,
+		name:   distro.X86_64ArchName,
+		distro: &rd,
 	}
 
 	aarch64 := architecture{
-		name:     distro.Aarch64ArchName,
-		distro:   &rd,
-		bootType: distro.UEFIBootType,
+		name:   distro.Aarch64ArchName,
+		distro: &rd,
 	}
 
 	ppc64le := architecture{
-		distro:   &rd,
-		name:     distro.Ppc64leArchName,
-		legacy:   "powerpc-ieee1275",
-		bootType: distro.LegacyBootType,
+		distro: &rd,
+		name:   distro.Ppc64leArchName,
 	}
 	s390x := architecture{
-		distro:   &rd,
-		name:     distro.S390xArchName,
-		bootType: distro.LegacyBootType,
+		distro: &rd,
+		name:   distro.S390xArchName,
 	}
 
 	ociImgType := qcow2ImgType(rd)
@@ -245,15 +239,15 @@ func newDistro(name string, minor int) *distribution {
 		openstackImgType(),
 	)
 
-	rawX86Platform := &platform.X86{
-		BIOS: true,
+	ec2X86Platform := &platform.X86{
+		BIOS:       true,
+		UEFIVendor: rd.vendor,
 		BasePlatform: platform.BasePlatform{
 			ImageFormat: platform.FORMAT_RAW,
 		},
 	}
-
 	x86_64.addImageTypes(
-		rawX86Platform,
+		ec2X86Platform,
 		amiImgTypeX86_64(rd),
 	)
 
@@ -285,14 +279,10 @@ func newDistro(name string, minor int) *distribution {
 		imageInstaller(),
 	)
 
-	// TODO: review requirement for platform with overridden packages for GCE
-	gceX86Platform := &gceX86{
-		X86: platform.X86{
-			BIOS:       true,
-			UEFIVendor: rd.vendor,
-			BasePlatform: platform.BasePlatform{
-				ImageFormat: platform.FORMAT_GCE,
-			},
+	gceX86Platform := &platform.X86{
+		UEFIVendor: rd.vendor,
+		BasePlatform: platform.BasePlatform{
+			ImageFormat: platform.FORMAT_GCE,
 		},
 	}
 
@@ -386,7 +376,7 @@ func newDistro(name string, minor int) *distribution {
 
 	s390x.addImageTypes(
 		&platform.S390X{
-			BIOS: true,
+			Zipl: true,
 			BasePlatform: platform.BasePlatform{
 				ImageFormat: platform.FORMAT_QCOW2,
 				QCOW2Compat: "0.10",
@@ -454,14 +444,14 @@ func newDistro(name string, minor int) *distribution {
 		x86_64.addImageTypes(azureX64Platform, azureRhuiImgType(), azureByosImgType(), azureSapRhuiImgType(rd))
 
 		// add ec2 image types to RHEL distro only
-		x86_64.addImageTypes(rawX86Platform, ec2ImgTypeX86_64(rd), ec2HaImgTypeX86_64(rd))
+		x86_64.addImageTypes(ec2X86Platform, ec2ImgTypeX86_64(rd), ec2HaImgTypeX86_64(rd))
 		aarch64.addImageTypes(rawAarch64Platform, ec2ImgTypeAarch64(rd))
 
 		if rd.osVersion != "8.5" {
 			// NOTE: RHEL 8.5 is going away and these image types require some
 			// work to get working, so we just disable them here until the
 			// whole distro gets deleted
-			x86_64.addImageTypes(rawX86Platform, ec2SapImgTypeX86_64(rd))
+			x86_64.addImageTypes(ec2X86Platform, ec2SapImgTypeX86_64(rd))
 		}
 
 		// add GCE RHUI image to RHEL only

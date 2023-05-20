@@ -147,8 +147,6 @@ type architecture struct {
 	name             string
 	imageTypes       map[string]distro.ImageType
 	imageTypeAliases map[string]string
-	legacy           string
-	bootType         distro.BootType
 }
 
 func (a *architecture) Name() string {
@@ -231,8 +229,6 @@ type imageType struct {
 
 	// bootable image
 	bootable bool
-	// If set to a value, it is preferred over the architecture value
-	bootType distro.BootType
 	// List of valid arches for the image type
 	basePartitionTables distro.BasePartitionTableMap
 }
@@ -288,14 +284,15 @@ func (t *imageType) Exports() []string {
 	return t.exports
 }
 
-// getBootType returns the BootType which should be used for this particular
-// combination of architecture and image type.
-func (t *imageType) getBootType() distro.BootType {
-	bootType := t.arch.bootType
-	if t.bootType != distro.UnsetBootType {
-		bootType = t.bootType
+func (t *imageType) BootMode() distro.BootMode {
+	if t.platform.GetUEFIVendor() != "" && t.platform.GetBIOSPlatform() != "" {
+		return distro.BOOT_HYBRID
+	} else if t.platform.GetUEFIVendor() != "" {
+		return distro.BOOT_UEFI
+	} else if t.platform.GetBIOSPlatform() != "" || t.platform.GetZiplSupport() {
+		return distro.BOOT_LEGACY
 	}
-	return bootType
+	return distro.BOOT_NONE
 }
 
 func (t *imageType) getPartitionTable(
@@ -578,10 +575,8 @@ func newDistro(distroName string) distro.Distro {
 
 	// Architecture definitions
 	x86_64 := architecture{
-		name:     distro.X86_64ArchName,
-		distro:   &rd,
-		legacy:   "i386-pc",
-		bootType: distro.HybridBootType,
+		name:   distro.X86_64ArchName,
+		distro: &rd,
 	}
 
 	x86_64.addImageTypes(

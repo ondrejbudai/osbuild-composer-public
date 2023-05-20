@@ -186,28 +186,23 @@ func newDistro(name string, minor int) *distribution {
 
 	// Architecture definitions
 	x86_64 := architecture{
-		name:     distro.X86_64ArchName,
-		distro:   &rd,
-		legacy:   "i386-pc",
-		bootType: distro.HybridBootType,
+		name:   distro.X86_64ArchName,
+		distro: &rd,
 	}
 
 	aarch64 := architecture{
-		name:     distro.Aarch64ArchName,
-		distro:   &rd,
-		bootType: distro.UEFIBootType,
+		name:   distro.Aarch64ArchName,
+		distro: &rd,
 	}
 
 	ppc64le := architecture{
-		distro:   &rd,
-		name:     distro.Ppc64leArchName,
-		legacy:   "powerpc-ieee1275",
-		bootType: distro.LegacyBootType,
+		distro: &rd,
+		name:   distro.Ppc64leArchName,
 	}
+
 	s390x := architecture{
-		distro:   &rd,
-		name:     distro.S390xArchName,
-		bootType: distro.LegacyBootType,
+		distro: &rd,
+		name:   distro.S390xArchName,
 	}
 
 	qcow2ImgType := mkQcow2ImgType(rd)
@@ -264,19 +259,19 @@ func newDistro(name string, minor int) *distribution {
 		vmdkImgType,
 	)
 
-	rawX86Platform := &platform.X86{
-		BIOS: true,
+	ec2X86Platform := &platform.X86{
+		BIOS:       true,
+		UEFIVendor: rd.vendor,
 		BasePlatform: platform.BasePlatform{
 			ImageFormat: platform.FORMAT_RAW,
 		},
 	}
 	x86_64.addImageTypes(
-		rawX86Platform,
+		ec2X86Platform,
 		mkAMIImgTypeX86_64(rd.osVersion, rd.isRHEL()),
 	)
 
 	gceX86Platform := &platform.X86{
-		BIOS:       true,
 		UEFIVendor: rd.vendor,
 		BasePlatform: platform.BasePlatform{
 			ImageFormat: platform.FORMAT_GCE,
@@ -403,7 +398,7 @@ func newDistro(name string, minor int) *distribution {
 
 	s390x.addImageTypes(
 		&platform.S390X{
-			BIOS: true,
+			Zipl: true,
 			BasePlatform: platform.BasePlatform{
 				ImageFormat: platform.FORMAT_QCOW2,
 				QCOW2Compat: "1.1",
@@ -422,7 +417,7 @@ func newDistro(name string, minor int) *distribution {
 		aarch64.addImageTypes(azureAarch64Platform, azureRhuiImgType, azureByosImgType)
 
 		// add ec2 image types to RHEL distro only
-		x86_64.addImageTypes(rawX86Platform, mkEc2ImgTypeX86_64(rd.osVersion, rd.isRHEL()), mkEc2HaImgTypeX86_64(rd.osVersion, rd.isRHEL()), mkEC2SapImgTypeX86_64(rd.osVersion, rd.isRHEL()))
+		x86_64.addImageTypes(ec2X86Platform, mkEc2ImgTypeX86_64(rd.osVersion, rd.isRHEL()), mkEc2HaImgTypeX86_64(rd.osVersion, rd.isRHEL()), mkEC2SapImgTypeX86_64(rd.osVersion, rd.isRHEL()))
 
 		aarch64.addImageTypes(
 			&platform.Aarch64{

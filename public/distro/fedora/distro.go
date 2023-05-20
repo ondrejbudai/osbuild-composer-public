@@ -646,6 +646,17 @@ func (t *imageType) Exports() []string {
 	return []string{"assembler"}
 }
 
+func (t *imageType) BootMode() distro.BootMode {
+	if t.platform.GetUEFIVendor() != "" && t.platform.GetBIOSPlatform() != "" {
+		return distro.BOOT_HYBRID
+	} else if t.platform.GetUEFIVendor() != "" {
+		return distro.BOOT_UEFI
+	} else if t.platform.GetBIOSPlatform() != "" || t.platform.GetZiplSupport() {
+		return distro.BOOT_LEGACY
+	}
+	return distro.BOOT_NONE
+}
+
 func (t *imageType) getPartitionTable(
 	mountpoints []blueprint.FilesystemCustomization,
 	options distro.ImageOptions,
@@ -882,11 +893,6 @@ func newDistro(version int) distro.Distro {
 		distro: &rd,
 	}
 
-	s390x := architecture{
-		distro: &rd,
-		name:   distro.S390xArchName,
-	}
-
 	ociImgType := qcow2ImgType
 	ociImgType.name = "oci"
 
@@ -934,7 +940,8 @@ func newDistro(version int) distro.Distro {
 	)
 	x86_64.addImageTypes(
 		&platform.X86{
-			BIOS: true,
+			BIOS:       true,
+			UEFIVendor: "fedora",
 			BasePlatform: platform.BasePlatform{
 				ImageFormat: platform.FORMAT_RAW,
 			},
@@ -1090,8 +1097,6 @@ func newDistro(version int) distro.Distro {
 		minimalrawImgType,
 	)
 
-	s390x.addImageTypes(nil)
-
-	rd.addArches(x86_64, aarch64, s390x)
+	rd.addArches(x86_64, aarch64)
 	return &rd
 }
