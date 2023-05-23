@@ -90,6 +90,7 @@ KERNEL_RT_PKG="kernel-rt"
 
 # Set up variables.
 SYSROOT_RO="false"
+CUSTOM_DIRS_FILES="false"
 
 case "${ID}-${VERSION_ID}" in
     "rhel-8.8")
@@ -119,6 +120,7 @@ case "${ID}-${VERSION_ID}" in
         OS_VARIANT="fedora-unknown"
         OSTREE_OSNAME="fedora-iot"
         SYSROOT_RO="true"
+        CUSTOM_DIRS_FILES="true"
         ;;
     *)
         echo "unsupported distro: ${ID}-${VERSION_ID}"
@@ -507,6 +509,36 @@ groups = ["wheel"]
 EOF
 fi
 
+# Add directory and files customization, and services customization for testing
+if [[ "$CUSTOM_DIRS_FILES" == "true" ]]; then
+    tee -a "$BLUEPRINT_FILE" > /dev/null << EOF
+[[customizations.directories]]
+path = "/etc/custom_dir/dir1"
+user = 1020
+group = 1020
+mode = "0770"
+ensure_parents = true
+
+[[customizations.files]]
+path = "/etc/systemd/system/custom.service"
+data = "[Unit]\nDescription=Custom service\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/usr/bin/false\n[Install]\nWantedBy=multi-user.target\n"
+
+[[customizations.files]]
+path = "/etc/custom_file.txt"
+data = "image builder is the best\n"
+
+[[customizations.directories]]
+path = "/etc/systemd/system/custom.service.d"
+
+[[customizations.files]]
+path = "/etc/systemd/system/custom.service.d/override.conf"
+data = "[Service]\nExecStart=\nExecStart=/usr/bin/cat /etc/custom_file.txt\n"
+
+[customizations.services]
+enabled = ["custom.service"]
+EOF
+fi
+
 greenprint "📄 raw image blueprint"
 cat "$BLUEPRINT_FILE"
 
@@ -617,12 +649,21 @@ EOF
     sudo /usr/libexec/osbuild-composer-test/ansible-blocking-io.py
 
     # Test IoT/Edge OS
-    sudo ansible-playbook -v -i "${TEMPDIR}"/inventory -e image_type="${OSTREE_OSNAME}" -e skip_rollback_test="true" -e ignition="${HAS_IGNITION}" -e edge_type=edge-raw-image -e ostree_commit="${INSTALL_HASH}" -e sysroot_ro="$SYSROOT_RO" /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
+    sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
+        -e image_type="${OSTREE_OSNAME}" \
+        -e skip_rollback_test="true" \
+        -e ignition="${HAS_IGNITION}" \
+        -e edge_type=edge-raw-image \
+        -e ostree_commit="${INSTALL_HASH}" \
+        -e sysroot_ro="$SYSROOT_RO" \
+        -e test_custom_dirs_files="$CUSTOM_DIRS_FILES" \
+        /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
     check_result
 
+    # Test the same playbook with the user created by Ignition
     if [[ ${IGNITION} -eq 0 ]]; then
-    # Add instance IP address into /etc/ansible/hosts
-      sudo tee "${TEMPDIR}"/inventory > /dev/null << EOF
+        # Add instance IP address into /etc/ansible/hosts
+        sudo tee "${TEMPDIR}"/inventory > /dev/null << EOF
 [ostree_guest]
 ${BIOS_GUEST_ADDRESS}
 
@@ -636,9 +677,17 @@ ansible_become_method=sudo
 ansible_become_pass=${EDGE_USER_PASSWORD}
 EOF
 
-      # Test IoT/Edge OS
-      sudo ansible-playbook -v -i "${TEMPDIR}"/inventory -e image_type="${OSTREE_OSNAME}" -e skip_rollback_test="true" -e ignition="${HAS_IGNITION}" -e edge_type=edge-raw-image -e ostree_commit="${INSTALL_HASH}" -e sysroot_ro="$SYSROOT_RO" /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
-      check_result
+        # Test IoT/Edge OS
+        sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
+            -e image_type="${OSTREE_OSNAME}" \
+            -e skip_rollback_test="true" \
+            -e ignition="${HAS_IGNITION}" \
+            -e edge_type=edge-raw-image \
+            -e ostree_commit="${INSTALL_HASH}" \
+            -e sysroot_ro="$SYSROOT_RO" \
+            -e test_custom_dirs_files="$CUSTOM_DIRS_FILES" \
+            /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
+        check_result
     fi
 
     # Clean up BIOS VM
@@ -731,14 +780,23 @@ greenprint "fix stdio file non-blocking issue"
 sudo /usr/libexec/osbuild-composer-test/ansible-blocking-io.py
 
 # Test IoT/Edge OS
-sudo ansible-playbook -v -i "${TEMPDIR}"/inventory -e image_type="${OSTREE_OSNAME}" -e skip_rollback_test="true" -e ignition="${HAS_IGNITION}" -e edge_type=edge-raw-image -e ostree_commit="${INSTALL_HASH}" -e sysroot_ro="$SYSROOT_RO" /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
+sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
+    -e image_type="${OSTREE_OSNAME}" \
+    -e skip_rollback_test="true" \
+    -e ignition="${HAS_IGNITION}" \
+    -e edge_type=edge-raw-image \
+    -e ostree_commit="${INSTALL_HASH}" \
+    -e sysroot_ro="$SYSROOT_RO" \
+    -e test_custom_dirs_files="$CUSTOM_DIRS_FILES" \
+    /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
 check_result
 
 # test with ignition user
 
+# Test the same playbook with the user created by Ignition
 if [[ ${IGNITION} -eq 0 ]]; then
-  # Add instance IP address into /etc/ansible/hosts
-  sudo tee "${TEMPDIR}"/inventory > /dev/null << EOF
+    # Add instance IP address into /etc/ansible/hosts
+    sudo tee "${TEMPDIR}"/inventory > /dev/null << EOF
 [ostree_guest]
 ${UEFI_GUEST_ADDRESS}
 
@@ -752,9 +810,17 @@ ansible_become_method=sudo
 ansible_become_pass=${EDGE_USER_PASSWORD}
 EOF
 
-  # Test IoT/Edge OS
-  sudo ansible-playbook -v -i "${TEMPDIR}"/inventory -e image_type="${OSTREE_OSNAME}" -e skip_rollback_test="true" -e ignition="${HAS_IGNITION}" -e edge_type=edge-raw-image -e ostree_commit="${INSTALL_HASH}" -e sysroot_ro="$SYSROOT_RO" /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
-  check_result
+    # Test IoT/Edge OS
+    sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
+        -e image_type="${OSTREE_OSNAME}" \
+        -e skip_rollback_test="true" \
+        -e ignition="${HAS_IGNITION}" \
+        -e edge_type=edge-raw-image \
+        -e ostree_commit="${INSTALL_HASH}" \
+        -e sysroot_ro="$SYSROOT_RO" \
+        -e test_custom_dirs_files="$CUSTOM_DIRS_FILES" \
+        /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
+    check_result
 fi
 
 ##################################################################
@@ -803,6 +869,36 @@ description = "Administrator account"
 password = "\$6\$GRmb7S0p8vsYmXzH\$o0E020S.9JQGaHkszoog4ha4AQVs3sk8q0DvLjSMxoxHBKnB2FBXGQ/OkwZQfW/76ktHd0NX5nls2LPxPuUdl."
 home = "/home/admin/"
 groups = ["wheel"]
+EOF
+fi
+
+# Add directory and files customization, and services customization for testing
+if [[ "$CUSTOM_DIRS_FILES" == "true" ]]; then
+    tee -a "$BLUEPRINT_FILE" > /dev/null << EOF
+[[customizations.directories]]
+path = "/etc/custom_dir/dir1"
+user = 1020
+group = 1020
+mode = "0770"
+ensure_parents = true
+
+[[customizations.files]]
+path = "/etc/systemd/system/custom.service"
+data = "[Unit]\nDescription=Custom service\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/usr/bin/false\n[Install]\nWantedBy=multi-user.target\n"
+
+[[customizations.files]]
+path = "/etc/custom_file.txt"
+data = "image builder is the best\n"
+
+[[customizations.directories]]
+path = "/etc/systemd/system/custom.service.d"
+
+[[customizations.files]]
+path = "/etc/systemd/system/custom.service.d/override.conf"
+data = "[Service]\nExecStart=\nExecStart=/usr/bin/cat /etc/custom_file.txt\n"
+
+[customizations.services]
+enabled = ["custom.service"]
 EOF
 fi
 
@@ -893,24 +989,31 @@ done
 check_result
 
 if [[ ${IGNITION} -eq 0 ]]; then
-  # Add instance IP address into /etc/ansible/hosts
-  sudo tee "${TEMPDIR}"/inventory > /dev/null << EOF
-  [ostree_guest]
-  ${UEFI_GUEST_ADDRESS}
+    # Add instance IP address into /etc/ansible/hosts
+    sudo tee "${TEMPDIR}"/inventory > /dev/null << EOF
+[ostree_guest]
+${UEFI_GUEST_ADDRESS}
 
-  [ostree_guest:vars]
-  ansible_python_interpreter=/usr/bin/python3
-  ansible_user=core
-  ansible_private_key_file=${SSH_KEY}
-  ansible_ssh_common_args="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-  ansible_become=yes
-  ansible_become_method=sudo
-  ansible_become_pass=${EDGE_USER_PASSWORD}
+[ostree_guest:vars]
+ansible_python_interpreter=/usr/bin/python3
+ansible_user=core
+ansible_private_key_file=${SSH_KEY}
+ansible_ssh_common_args="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+ansible_become=yes
+ansible_become_method=sudo
+ansible_become_pass=${EDGE_USER_PASSWORD}
 EOF
 
-  # Test IoT/Edge OS
-  sudo ansible-playbook -v -i "${TEMPDIR}"/inventory -e image_type="${OSTREE_OSNAME}" -e skip_rollback_test="true" -e edge_type=edge-raw-image -e ostree_commit="${UPGRADE_HASH}" -e sysroot_ro="$SYSROOT_RO" /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
-  check_result
+    # Test IoT/Edge OS
+    sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
+        -e image_type="${OSTREE_OSNAME}" \
+        -e skip_rollback_test="true" \
+        -e edge_type=edge-raw-image \
+        -e ostree_commit="${UPGRADE_HASH}" \
+        -e sysroot_ro="$SYSROOT_RO" \
+        -e test_custom_dirs_files="$CUSTOM_DIRS_FILES" \
+        /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
+    check_result
 fi
 
 # Add instance IP address into /etc/ansible/hosts
@@ -933,7 +1036,13 @@ greenprint "fix stdio file non-blocking issue"
 sudo /usr/libexec/osbuild-composer-test/ansible-blocking-io.py
 
 # Test IoT/Edge OS
-sudo ansible-playbook -v -i "${TEMPDIR}"/inventory -e image_type="${OSTREE_OSNAME}" -e edge_type=edge-raw-image -e ostree_commit="${UPGRADE_HASH}" -e sysroot_ro="$SYSROOT_RO" /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
+sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
+    -e image_type="${OSTREE_OSNAME}" \
+    -e edge_type=edge-raw-image \
+    -e ostree_commit="${UPGRADE_HASH}" \
+    -e sysroot_ro="$SYSROOT_RO" \
+    -e test_custom_dirs_files="$CUSTOM_DIRS_FILES" \
+    /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
 check_result
 
 # Final success clean up

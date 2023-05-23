@@ -6,6 +6,7 @@ import (
 
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/disk"
+	"github.com/ondrejbudai/osbuild-composer-public/public/fsnode"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
 	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
 	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
@@ -40,6 +41,12 @@ type OSTreeDeployment struct {
 
 	// Whether ignition is in use or not
 	ignition bool
+
+	Directories []*fsnode.Directory
+	Files       []*fsnode.File
+
+	EnabledServices  []string
+	DisabledServices []string
 }
 
 // NewOSTreeDeployment creates a pipeline for an ostree deployment from a
@@ -254,6 +261,32 @@ func (p *OSTreeDeployment) serialize() osbuild.Pipeline {
 	bootloader.MountOSTree(p.osName, p.commit.Ref, 0)
 	pipeline.AddStage(bootloader)
 
+	// First create custom directories, because some of the files may depend on them
+	if len(p.Directories) > 0 {
+		dirStages := osbuild.GenDirectoryNodesStages(p.Directories)
+		for _, stage := range dirStages {
+			stage.MountOSTree(p.osName, p.commit.Ref, 0)
+		}
+		pipeline.AddStages(dirStages...)
+	}
+
+	if len(p.Files) > 0 {
+		fileStages := osbuild.GenFileNodesStages(p.Files)
+		for _, stage := range fileStages {
+			stage.MountOSTree(p.osName, p.commit.Ref, 0)
+		}
+		pipeline.AddStages(fileStages...)
+	}
+
+	if len(p.EnabledServices) != 0 || len(p.DisabledServices) != 0 {
+		systemdStage := osbuild.NewSystemdStage(&osbuild.SystemdStageOptions{
+			EnabledServices:  p.EnabledServices,
+			DisabledServices: p.DisabledServices,
+		})
+		systemdStage.MountOSTree(p.osName, p.commit.Ref, 0)
+		pipeline.AddStage(systemdStage)
+	}
+
 	pipeline.AddStage(osbuild.NewOSTreeSelinuxStage(
 		&osbuild.OSTreeSelinuxStageOptions{
 			Deployment: osbuild.OSTreeDeployment{
@@ -264,4 +297,15 @@ func (p *OSTreeDeployment) serialize() osbuild.Pipeline {
 	))
 
 	return pipeline
+}
+
+func (p *OSTreeDeployment) getInline() []string {
+	inlineData := []string{}
+
+	// inline data for custom files
+	for _, file := range p.Files {
+		inlineData = append(inlineData, string(file.Data()))
+	}
+
+	return inlineData
 }
