@@ -18,9 +18,12 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
+	"github.com/ondrejbudai/osbuild-composer-public/public/manifest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
 	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
+	"github.com/ondrejbudai/osbuild-composer-public/public/rhsm/facts"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
+	"github.com/ondrejbudai/osbuild-composer-public/public/subscription"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker/clienterrors"
@@ -113,7 +116,7 @@ type imageRequest struct {
 	repositories []rpmmd.RepoConfig
 	imageOptions distro.ImageOptions
 	target       *target.Target
-	ostree       *ostree.RequestParams
+	ostree       *ostree.SourceSpec
 }
 
 func (h *apiHandlers) PostCompose(ctx echo.Context) error {
@@ -371,7 +374,7 @@ func (h *apiHandlers) PostCompose(ctx echo.Context) error {
 			}
 
 			if repo.SslVerify != nil {
-				repoCustomization.SSLVerify = *repo.SslVerify
+				repoCustomization.SSLVerify = repo.SslVerify
 			}
 
 			if repo.Priority != nil {
@@ -435,8 +438,8 @@ func (h *apiHandlers) PostCompose(ctx echo.Context) error {
 		imageOptions := distro.ImageOptions{Size: imageType.Size(0)}
 
 		if request.Koji == nil {
-			imageOptions.Facts = &distro.FactsImageOptions{
-				ApiType: "cloudapi-v2",
+			imageOptions.Facts = &facts.ImageOptions{
+				APIType: facts.CLOUDV2_APITYPE,
 			}
 		}
 
@@ -446,7 +449,7 @@ func (h *apiHandlers) PostCompose(ctx echo.Context) error {
 			if request.Customizations.Subscription.Rhc != nil {
 				rhc = *request.Customizations.Subscription.Rhc
 			}
-			imageOptions.Subscription = &distro.SubscriptionImageOptions{
+			imageOptions.Subscription = &subscription.ImageOptions{
 				Organization:  request.Customizations.Subscription.Organization,
 				ActivationKey: request.Customizations.Subscription.ActivationKey,
 				ServerUrl:     request.Customizations.Subscription.ServerUrl,
@@ -456,10 +459,12 @@ func (h *apiHandlers) PostCompose(ctx echo.Context) error {
 			}
 		}
 
-		var ostreeOptions *ostree.RequestParams
+		var ostreeOptions *ostree.SourceSpec
 		// assume it's an ostree image if the type has a default ostree ref
 		if imageType.OSTreeRef() != "" {
-			ostreeOptions = &ostree.RequestParams{}
+			imageOptions.OSTree = &ostree.ImageOptions{}
+
+			ostreeOptions = &ostree.SourceSpec{}
 			if ir.Ostree != nil {
 				if ir.Ostree.Ref != nil {
 					ostreeOptions.Ref = *ir.Ostree.Ref
@@ -1324,7 +1329,7 @@ func (h *apiHandlers) getComposeManifestsImpl(ctx echo.Context, id string) error
 				return HTTPErrorWithInternal(ErrorComposeNotFound, err)
 			}
 
-			var manifest distro.Manifest
+			var mf manifest.OSBuildManifest
 
 			switch buildJobType {
 			case worker.JobTypeOSBuild:
@@ -1335,7 +1340,7 @@ func (h *apiHandlers) getComposeManifestsImpl(ctx echo.Context, id string) error
 				}
 
 				if len(buildJob.Manifest) != 0 {
-					manifest = buildJob.Manifest
+					mf = buildJob.Manifest
 				} else {
 					buildInfo, err := h.server.workers.OSBuildJobInfo(finalizeInfo.Deps[i], &worker.OSBuildJobResult{})
 					if err != nil {
@@ -1345,14 +1350,14 @@ func (h *apiHandlers) getComposeManifestsImpl(ctx echo.Context, id string) error
 					if err != nil {
 						return HTTPErrorWithInternal(ErrorComposeNotFound, fmt.Errorf("job %q: %v", jobId, err))
 					}
-					manifest = manifestResult.Manifest
+					mf = manifestResult.Manifest
 				}
 
 			default:
 				return HTTPErrorWithInternal(ErrorInvalidJobType,
 					fmt.Errorf("unexpected job type in koji compose dependencies: %q", buildJobType))
 			}
-			manifestBlobs = append(manifestBlobs, manifest)
+			manifestBlobs = append(manifestBlobs, mf)
 		}
 
 	case worker.JobTypeOSBuild:
@@ -1362,9 +1367,9 @@ func (h *apiHandlers) getComposeManifestsImpl(ctx echo.Context, id string) error
 			return HTTPErrorWithInternal(ErrorComposeNotFound, err)
 		}
 
-		var manifest distro.Manifest
+		var mf manifest.OSBuildManifest
 		if len(buildJob.Manifest) != 0 {
-			manifest = buildJob.Manifest
+			mf = buildJob.Manifest
 		} else {
 			buildInfo, err := h.server.workers.OSBuildJobInfo(jobId, &worker.OSBuildJobResult{})
 			if err != nil {
@@ -1374,9 +1379,9 @@ func (h *apiHandlers) getComposeManifestsImpl(ctx echo.Context, id string) error
 			if err != nil {
 				return HTTPErrorWithInternal(ErrorComposeNotFound, fmt.Errorf("job %q: %v", jobId, err))
 			}
-			manifest = manifestResult.Manifest
+			mf = manifestResult.Manifest
 		}
-		manifestBlobs = append(manifestBlobs, manifest)
+		manifestBlobs = append(manifestBlobs, mf)
 
 	default:
 		return HTTPError(ErrorInvalidJobType)
@@ -1441,7 +1446,7 @@ func genRepoConfig(repo Repository) (*rpmmd.RepoConfig, error) {
 		repoConfig.GPGKeys = []string{*repo.Gpgkey}
 	}
 	if repo.IgnoreSsl != nil {
-		repoConfig.IgnoreSSL = *repo.IgnoreSsl
+		repoConfig.IgnoreSSL = repo.IgnoreSsl
 	}
 
 	if repo.CheckGpg != nil {
@@ -1451,7 +1456,7 @@ func genRepoConfig(repo Repository) (*rpmmd.RepoConfig, error) {
 		repoConfig.GPGKeys = []string{*repo.Gpgkey}
 	}
 	if repo.IgnoreSsl != nil {
-		repoConfig.IgnoreSSL = *repo.IgnoreSsl
+		repoConfig.IgnoreSSL = repo.IgnoreSsl
 	}
 	if repo.CheckRepoGpg != nil {
 		repoConfig.CheckRepoGPG = repo.CheckRepoGpg

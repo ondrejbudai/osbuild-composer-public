@@ -23,6 +23,7 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/container"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
+	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
 	"github.com/ondrejbudai/osbuild-composer-public/public/prometheus"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
@@ -106,8 +107,21 @@ func (s *Server) enqueueCompose(distribution distro.Distro, bp blueprint.Bluepri
 	}
 	ir := irs[0]
 
+	// NOTE(akoutsou): Image options don't have resolved ostree ref yet, but it
+	// will affect package sets if we don't add it and it's required.  This
+	// used to be done in the old PackageSets() function (which no longer
+	// exists), but now we only need it in the cloud API where things aren't
+	// done in the (new) correct order yet.
+	ir.imageOptions.OSTree = &ostree.ImageOptions{
+		ImageRef: ir.imageType.OSTreeRef(),
+	}
+	manifestSource, _, err := ir.imageType.Manifest(&bp, ir.imageOptions, ir.repositories, manifestSeed)
+	if err != nil {
+		return id, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
+	}
+
 	depsolveJobID, err := s.workers.EnqueueDepsolve(&worker.DepsolveJob{
-		PackageSets:      ir.imageType.PackageSets(bp, ir.imageOptions, ir.repositories),
+		PackageSets:      manifestSource.Content.PackageSets,
 		ModulePlatformID: distribution.ModulePlatformID(),
 		Arch:             ir.arch.Name(),
 		Releasever:       distribution.Releasever(),
@@ -146,7 +160,7 @@ func (s *Server) enqueueCompose(distribution distro.Distro, bp blueprint.Bluepri
 	if ir.ostree != nil {
 		jobID, err := s.workers.EnqueueOSTreeResolveJob(&worker.OSTreeResolveJob{
 			Specs: []worker.OSTreeResolveSpec{
-				worker.OSTreeResolveSpec{
+				{
 					URL:    ir.ostree.URL,
 					Ref:    ir.ostree.Ref,
 					Parent: ir.ostree.Parent,
@@ -180,7 +194,7 @@ func (s *Server) enqueueCompose(distribution distro.Distro, bp blueprint.Bluepri
 
 	s.goroutinesGroup.Add(1)
 	go func() {
-		generateManifest(s.goroutinesCtx, s.workers, depsolveJobID, containerResolveJob, ostreeResolveJobID, manifestJobID, ir.imageType, ir.repositories, ir.imageOptions, manifestSeed, bp.Customizations)
+		generateManifest(s.goroutinesCtx, s.workers, depsolveJobID, containerResolveJob, ostreeResolveJobID, manifestJobID, ir.imageType, ir.repositories, ir.imageOptions, manifestSeed, &bp)
 		defer s.goroutinesGroup.Done()
 	}()
 
@@ -204,8 +218,21 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 	var kojiFilenames []string
 	var buildIDs []uuid.UUID
 	for _, ir := range irs {
+		// NOTE(akoutsou): Image options don't have resolved ostree ref yet, but it
+		// will affect package sets if we don't add it and it's required.  This
+		// used to be done in the old PackageSets() function (which no longer
+		// exists), but now we only need it in the cloud API where things aren't
+		// done in the (new) correct order yet.
+		ir.imageOptions.OSTree = &ostree.ImageOptions{
+			ImageRef: ir.imageType.OSTreeRef(),
+		}
+		manifestSource, _, err := ir.imageType.Manifest(&bp, ir.imageOptions, ir.repositories, manifestSeed)
+		if err != nil {
+			return id, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
+		}
+
 		depsolveJobID, err := s.workers.EnqueueDepsolve(&worker.DepsolveJob{
-			PackageSets:      ir.imageType.PackageSets(bp, ir.imageOptions, ir.repositories),
+			PackageSets:      manifestSource.Content.PackageSets,
 			ModulePlatformID: distribution.ModulePlatformID(),
 			Arch:             ir.arch.Name(),
 			Releasever:       distribution.Releasever(),
@@ -244,7 +271,7 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 		if ir.ostree != nil {
 			jobID, err := s.workers.EnqueueOSTreeResolveJob(&worker.OSTreeResolveJob{
 				Specs: []worker.OSTreeResolveSpec{
-					worker.OSTreeResolveSpec{
+					{
 						URL:    ir.ostree.URL,
 						Ref:    ir.ostree.Ref,
 						Parent: ir.ostree.Parent,
@@ -303,7 +330,7 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 		// copy the image request while passing it into the goroutine to prevent data races
 		s.goroutinesGroup.Add(1)
 		go func(ir imageRequest) {
-			generateManifest(s.goroutinesCtx, s.workers, depsolveJobID, containerResolveJob, ostreeResolveJobID, manifestJobID, ir.imageType, ir.repositories, ir.imageOptions, manifestSeed, bp.Customizations)
+			generateManifest(s.goroutinesCtx, s.workers, depsolveJobID, containerResolveJob, ostreeResolveJobID, manifestJobID, ir.imageType, ir.repositories, ir.imageOptions, manifestSeed, &bp)
 			defer s.goroutinesGroup.Done()
 		}(ir)
 	}
@@ -324,7 +351,7 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 	return id, nil
 }
 
-func generateManifest(ctx context.Context, workers *worker.Server, depsolveJobID, containerResolveJobID, ostreeResolveJobID, manifestJobID uuid.UUID, imageType distro.ImageType, repos []rpmmd.RepoConfig, options distro.ImageOptions, seed int64, b *blueprint.Customizations) {
+func generateManifest(ctx context.Context, workers *worker.Server, depsolveJobID, containerResolveJobID, ostreeResolveJobID, manifestJobID uuid.UUID, imageType distro.ImageType, repos []rpmmd.RepoConfig, options distro.ImageOptions, seed int64, b *blueprint.Blueprint) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute*5)
 	defer cancel()
 
@@ -454,17 +481,33 @@ func generateManifest(ctx context.Context, workers *worker.Server, depsolveJobID
 			return
 		}
 
-		options.OSTree.ImageRef = result.Specs[0].Ref
-		options.OSTree.FetchChecksum = result.Specs[0].Checksum
-		options.OSTree.URL = result.Specs[0].URL
+		options.OSTree = &ostree.ImageOptions{
+			ImageRef:      result.Specs[0].Ref,
+			FetchChecksum: result.Specs[0].Checksum,
+			URL:           result.Specs[0].URL,
+		}
 	}
 
-	manifest, _, err := imageType.Manifest(b, options, repos, depsolveResults.PackageSpecs, containerSpecs, seed)
+	manifest, _, err := imageType.Manifest(b, options, repos, seed)
 	if err != nil {
 		reason := "Error generating manifest"
 		jobResult.JobError = clienterrors.WorkerClientError(clienterrors.ErrorManifestGeneration, reason, nil)
 		return
 	}
 
-	jobResult.Manifest = manifest
+	// NOTE: This assumes that containers are only embedded in the first
+	// payload pipeline, which is currently true for all image types but might
+	// not necessarily be in the future. This is a workaround required for this
+	// temporary state where the cloud API is not using the new manifest
+	// generation procedure. Once it's updated, the container specs will be
+	// mapped to pipeline names properly by the image type itself.
+	var payloadPipelineName string
+	if pipelineNames := imageType.PayloadPipelines(); len(pipelineNames) > 0 {
+		payloadPipelineName = pipelineNames[0]
+	} else {
+		panic(fmt.Sprintf("ImageType %q does not define payload pipelines - this is a programming error", imageType.Name()))
+	}
+	ms, err := manifest.Serialize(depsolveResults.PackageSpecs, map[string][]container.Spec{payloadPipelineName: containerSpecs})
+
+	jobResult.Manifest = ms
 }

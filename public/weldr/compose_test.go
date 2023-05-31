@@ -32,12 +32,16 @@ func TestComposeStatusFromLegacyError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error getting image type from arch: %v", err)
 	}
-	manifest, _, err := imageType.Manifest(nil, distro.ImageOptions{Size: imageType.Size(0)}, nil, nil, nil, 0)
+	manifest, _, err := imageType.Manifest(nil, distro.ImageOptions{Size: imageType.Size(0)}, nil, 0)
 	if err != nil {
 		t.Fatalf("error creating osbuild manifest: %v", err)
 	}
+	mf, err := manifest.Serialize(nil, nil)
+	if err != nil {
+		t.Fatalf("error serializing osbuild manifest: %v", err)
+	}
 
-	jobId, err := api.workers.EnqueueOSBuild(arch.Name(), &worker.OSBuildJob{Manifest: manifest}, "")
+	jobId, err := api.workers.EnqueueOSBuild(arch.Name(), &worker.OSBuildJob{Manifest: mf}, "")
 	require.NoError(t, err)
 
 	j, token, _, _, _, err := api.workers.RequestJob(context.Background(), arch.Name(), []string{worker.JobTypeOSBuild}, []string{""})
@@ -81,12 +85,16 @@ func TestComposeStatusFromJobError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error getting image type from arch: %v", err)
 	}
-	manifest, _, err := imageType.Manifest(nil, distro.ImageOptions{Size: imageType.Size(0)}, nil, nil, nil, 0)
+	manifest, _, err := imageType.Manifest(nil, distro.ImageOptions{Size: imageType.Size(0)}, nil, 0)
 	if err != nil {
 		t.Fatalf("error creating osbuild manifest: %v", err)
 	}
+	mf, err := manifest.Serialize(nil, nil)
+	if err != nil {
+		t.Fatalf("error serializing osbuild manifest: %v", err)
+	}
 
-	jobId, err := api.workers.EnqueueOSBuild(arch.Name(), &worker.OSBuildJob{Manifest: manifest}, "")
+	jobId, err := api.workers.EnqueueOSBuild(arch.Name(), &worker.OSBuildJob{Manifest: mf}, "")
 	require.NoError(t, err)
 
 	j, token, _, _, _, err := api.workers.RequestJob(context.Background(), arch.Name(), []string{worker.JobTypeOSBuild}, []string{""})

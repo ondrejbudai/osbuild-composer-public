@@ -29,7 +29,7 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/boot/openstacktest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/boot/vmwaretest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
-	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
+	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
 	"github.com/ondrejbudai/osbuild-composer-public/public/test"
 )
 
@@ -410,7 +410,7 @@ func testBootUsingOpenStack(t *testing.T, imagePath string) {
 	currentArch := common.CurrentArch()
 
 	// skip on aarch64 because we don't have aarch64 openstack or kvm machines
-	if currentArch == distro.Aarch64ArchName {
+	if currentArch == platform.ARCH_AARCH64.String() {
 		t.Skip("Openstack boot test is skipped on aarch64.")
 		// if no credentials are given, fall back to qemu
 	} else if (creds == gophercloud.AuthOptions{}) {

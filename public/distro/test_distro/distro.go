@@ -1,16 +1,14 @@
 package test_distro
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 
 	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
-	"github.com/ondrejbudai/osbuild-composer-public/public/container"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
-	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
+	"github.com/ondrejbudai/osbuild-composer-public/public/manifest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 )
 
@@ -195,32 +193,6 @@ func (t *TestImageType) BootMode() distro.BootMode {
 	return distro.BOOT_HYBRID
 }
 
-func (t *TestImageType) PackageSets(bp blueprint.Blueprint, options distro.ImageOptions, repos []rpmmd.RepoConfig) map[string][]rpmmd.PackageSet {
-	return map[string][]rpmmd.PackageSet{
-		buildPkgsKey: {{
-			Include: []string{
-				"dep-package1",
-				"dep-package2",
-				"dep-package3",
-			},
-			Repositories: repos,
-		},
-		},
-		blueprintPkgsKey: {{
-			Include:      bp.GetPackages(),
-			Repositories: repos,
-		}},
-		osPkgsKey: {{
-			Include: []string{
-				"dep-package1",
-				"dep-package2",
-				"dep-package3",
-			},
-			Repositories: repos,
-		}},
-	}
-}
-
 func (t *TestImageType) BuildPipelines() []string {
 	return distro.BuildPipelinesFallback()
 }
@@ -243,26 +215,52 @@ func (t *TestImageType) Exports() []string {
 	return distro.ExportsFallback()
 }
 
-func (t *TestImageType) Manifest(b *blueprint.Customizations, options distro.ImageOptions, repos []rpmmd.RepoConfig, packageSpecSets map[string][]rpmmd.PackageSpec, containers []container.Spec, seed int64) (distro.Manifest, []string, error) {
-	mountpoints := b.GetFilesystems()
+func (t *TestImageType) Manifest(b *blueprint.Blueprint, options distro.ImageOptions, repos []rpmmd.RepoConfig, seed int64) (*manifest.Manifest, []string, error) {
+	var bpPkgs []string
+	if b != nil {
+		mountpoints := b.Customizations.GetFilesystems()
 
-	invalidMountpoints := []string{}
-	for _, m := range mountpoints {
-		if m.Mountpoint != "/" {
-			invalidMountpoints = append(invalidMountpoints, m.Mountpoint)
+		invalidMountpoints := []string{}
+		for _, m := range mountpoints {
+			if m.Mountpoint != "/" {
+				invalidMountpoints = append(invalidMountpoints, m.Mountpoint)
+			}
 		}
+
+		if len(invalidMountpoints) > 0 {
+			return nil, nil, fmt.Errorf("The following custom mountpoints are not supported %+q", invalidMountpoints)
+		}
+
+		bpPkgs = b.GetPackages()
 	}
 
-	if len(invalidMountpoints) > 0 {
-		return nil, nil, fmt.Errorf("The following custom mountpoints are not supported %+q", invalidMountpoints)
+	ret := manifest.Manifest{
+		Content: manifest.Content{
+			PackageSets: map[string][]rpmmd.PackageSet{
+				buildPkgsKey: {{
+					Include: []string{
+						"dep-package1",
+						"dep-package2",
+						"dep-package3",
+					},
+					Repositories: repos,
+				}},
+				blueprintPkgsKey: {{
+					Include:      bpPkgs,
+					Repositories: repos,
+				}},
+				osPkgsKey: {{
+					Include: []string{
+						"dep-package1",
+						"dep-package2",
+						"dep-package3",
+					},
+					Repositories: repos,
+				}},
+			},
+		},
 	}
-
-	ret, err := json.Marshal(
-		osbuild.Manifest{
-			Sources:   osbuild.Sources{},
-			Pipelines: []osbuild.Pipeline{},
-		})
-	return ret, nil, err
+	return &ret, nil, nil
 }
 
 // newTestDistro returns a new instance of TestDistro with the

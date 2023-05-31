@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
+	"github.com/ondrejbudai/osbuild-composer-public/public/container"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
 	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
@@ -82,7 +83,7 @@ func (p *OSTreeCommitServer) getPackageSpecs() []rpmmd.PackageSpec {
 	return p.packageSpecs
 }
 
-func (p *OSTreeCommitServer) serializeStart(packages []rpmmd.PackageSpec) {
+func (p *OSTreeCommitServer) serializeStart(packages []rpmmd.PackageSpec, _ []container.Spec) {
 	if len(p.packageSpecs) > 0 {
 		panic("double call to serializeStart()")
 	}

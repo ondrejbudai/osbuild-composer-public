@@ -4,12 +4,13 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/disk"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
+	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
 )
 
 // ////////// Partition table //////////
 
 var defaultBasePartitionTables = distro.BasePartitionTableMap{
-	distro.X86_64ArchName: disk.PartitionTable{
+	platform.ARCH_X86_64.String(): disk.PartitionTable{
 		UUID: "D209C89E-EA5E-4FBD-B161-B461CCE297E0",
 		Type: "gpt",
 		Partitions: []disk.Partition{

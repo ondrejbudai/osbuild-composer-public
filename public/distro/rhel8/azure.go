@@ -5,8 +5,10 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/disk"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
+	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/shell"
+	"github.com/ondrejbudai/osbuild-composer-public/public/subscription"
 )
 
 const defaultAzureKernelOptions = "ro crashkernel=auto console=tty1 console=ttyS0 earlyprintk=ttyS0 rootdelay=300"
@@ -256,7 +258,7 @@ func azureEapPackageSet(t *imageType) rpmmd.PackageSet {
 // PARTITION TABLES
 
 var azureRhuiBasePartitionTables = distro.BasePartitionTableMap{
-	distro.X86_64ArchName: disk.PartitionTable{
+	platform.ARCH_X86_64.String(): disk.PartitionTable{
 		UUID: "D209C89E-EA5E-4FBD-B161-B461CCE297E0",
 		Type: "gpt",
 		Size: 64 * common.GibiByte,
@@ -364,7 +366,7 @@ var azureRhuiBasePartitionTables = distro.BasePartitionTableMap{
 			},
 		},
 	},
-	distro.Aarch64ArchName: disk.PartitionTable{
+	platform.ARCH_AARCH64.String(): disk.PartitionTable{
 		UUID: "D209C89E-EA5E-4FBD-B161-B461CCE297E0",
 		Type: "gpt",
 		Size: 64 * common.GibiByte,
@@ -623,8 +625,8 @@ var defaultAzureByosImageConfig = &distro.ImageConfig{
 	GPGKeyFiles: []string{
 		"/etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release",
 	},
-	RHSMConfig: map[distro.RHSMSubscriptionStatus]*osbuild.RHSMStageOptions{
-		distro.RHSMConfigNoSubscription: {
+	RHSMConfig: map[subscription.RHSMStatus]*osbuild.RHSMStageOptions{
+		subscription.RHSMConfigNoSubscription: {
 			SubMan: &osbuild.RHSMStageOptionsSubMan{
 				Rhsmcertd: &osbuild.SubManConfigRHSMCERTDSection{
 					AutoRegistration: common.ToPtr(true),
@@ -638,7 +640,7 @@ var defaultAzureByosImageConfig = &distro.ImageConfig{
 				// confusing.
 			},
 		},
-		distro.RHSMConfigWithSubscription: {
+		subscription.RHSMConfigWithSubscription: {
 			SubMan: &osbuild.RHSMStageOptionsSubMan{
 				Rhsmcertd: &osbuild.SubManConfigRHSMCERTDSection{
 					AutoRegistration: common.ToPtr(true),
@@ -656,8 +658,8 @@ var defaultAzureRhuiImageConfig = &distro.ImageConfig{
 		"/etc/pki/rpm-gpg/RPM-GPG-KEY-microsoft-azure-release",
 		"/etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release",
 	},
-	RHSMConfig: map[distro.RHSMSubscriptionStatus]*osbuild.RHSMStageOptions{
-		distro.RHSMConfigNoSubscription: {
+	RHSMConfig: map[subscription.RHSMStatus]*osbuild.RHSMStageOptions{
+		subscription.RHSMConfigNoSubscription: {
 			DnfPlugins: &osbuild.RHSMStageOptionsDnfPlugins{
 				SubscriptionManager: &osbuild.RHSMStageOptionsDnfPlugin{
 					Enabled: false,
@@ -672,7 +674,7 @@ var defaultAzureRhuiImageConfig = &distro.ImageConfig{
 				},
 			},
 		},
-		distro.RHSMConfigWithSubscription: {
+		subscription.RHSMConfigWithSubscription: {
 			SubMan: &osbuild.RHSMStageOptionsSubMan{
 				Rhsmcertd: &osbuild.SubManConfigRHSMCERTDSection{
 					AutoRegistration: common.ToPtr(true),

@@ -19,7 +19,9 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro/test_distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/jobqueue/fsjobqueue"
+	"github.com/ondrejbudai/osbuild-composer-public/public/manifest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
+	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 	"github.com/ondrejbudai/osbuild-composer-public/public/test"
@@ -129,19 +131,23 @@ func TestCreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error getting image type from arch: %v", err)
 	}
-	manifest, _, err := imageType.Manifest(nil, distro.ImageOptions{Size: imageType.Size(0)}, nil, nil, nil, 0)
+	manifest, _, err := imageType.Manifest(nil, distro.ImageOptions{Size: imageType.Size(0)}, nil, 0)
+	if err != nil {
+		t.Fatalf("error creating osbuild manifest: %v", err)
+	}
+	mf, err := manifest.Serialize(nil, nil)
 	if err != nil {
 		t.Fatalf("error creating osbuild manifest: %v", err)
 	}
 	server := newTestServer(t, t.TempDir(), time.Duration(0), "/api/worker/v1", false)
 	handler := server.Handler()
 
-	_, err = server.EnqueueOSBuild(arch.Name(), &worker.OSBuildJob{Manifest: manifest}, "")
+	_, err = server.EnqueueOSBuild(arch.Name(), &worker.OSBuildJob{Manifest: mf}, "")
 	require.NoError(t, err)
 
 	test.TestRoute(t, handler, false, "POST", "/api/worker/v1/jobs",
 		fmt.Sprintf(`{"types":["%s"],"arch":"%s"}`, worker.JobTypeOSBuild, test_distro.TestArchName), http.StatusCreated,
-		fmt.Sprintf(`{"kind":"RequestJob","href":"/api/worker/v1/jobs","type":"%s","args":{"manifest":{"version":"","pipelines":[],"sources":{}}}}`, worker.JobTypeOSBuild), "id", "location", "artifact_location")
+		fmt.Sprintf(`{"kind":"RequestJob","href":"/api/worker/v1/jobs","type":"%s","args":{"manifest":{"version":"2","pipelines":[],"sources":{}}}}`, worker.JobTypeOSBuild), "id", "location", "artifact_location")
 }
 
 func TestCancel(t *testing.T) {
@@ -154,14 +160,18 @@ func TestCancel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error getting image type from arch: %v", err)
 	}
-	manifest, _, err := imageType.Manifest(nil, distro.ImageOptions{Size: imageType.Size(0)}, nil, nil, nil, 0)
+	manifest, _, err := imageType.Manifest(nil, distro.ImageOptions{Size: imageType.Size(0)}, nil, 0)
 	if err != nil {
 		t.Fatalf("error creating osbuild manifest: %v", err)
 	}
 	server := newTestServer(t, t.TempDir(), time.Duration(0), "/api/worker/v1", false)
+	mf, err := manifest.Serialize(nil, nil)
+	if err != nil {
+		t.Fatalf("error creating osbuild manifest: %v", err)
+	}
 	handler := server.Handler()
 
-	jobId, err := server.EnqueueOSBuild(arch.Name(), &worker.OSBuildJob{Manifest: manifest}, "")
+	jobId, err := server.EnqueueOSBuild(arch.Name(), &worker.OSBuildJob{Manifest: mf}, "")
 	require.NoError(t, err)
 
 	j, token, typ, args, dynamicArgs, err := server.RequestJob(context.Background(), arch.Name(), []string{worker.JobTypeOSBuild}, []string{""})
@@ -191,14 +201,18 @@ func TestUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error getting image type from arch: %v", err)
 	}
-	manifest, _, err := imageType.Manifest(nil, distro.ImageOptions{Size: imageType.Size(0)}, nil, nil, nil, 0)
+	manifest, _, err := imageType.Manifest(nil, distro.ImageOptions{Size: imageType.Size(0)}, nil, 0)
 	if err != nil {
 		t.Fatalf("error creating osbuild manifest: %v", err)
 	}
 	server := newTestServer(t, t.TempDir(), time.Duration(0), "/api/worker/v1", false)
+	mf, err := manifest.Serialize(nil, nil)
+	if err != nil {
+		t.Fatalf("error creating osbuild manifest: %v", err)
+	}
 	handler := server.Handler()
 
-	jobId, err := server.EnqueueOSBuild(arch.Name(), &worker.OSBuildJob{Manifest: manifest}, "")
+	jobId, err := server.EnqueueOSBuild(arch.Name(), &worker.OSBuildJob{Manifest: mf}, "")
 	require.NoError(t, err)
 
 	j, token, typ, args, dynamicArgs, err := server.RequestJob(context.Background(), arch.Name(), []string{worker.JobTypeOSBuild}, []string{""})
@@ -221,13 +235,14 @@ func TestArgs(t *testing.T) {
 	require.NoError(t, err)
 	imageType, err := arch.GetImageType(test_distro.TestImageTypeName)
 	require.NoError(t, err)
-	manifest, _, err := imageType.Manifest(nil, distro.ImageOptions{Size: imageType.Size(0)}, nil, nil, nil, 0)
+	manifest, _, err := imageType.Manifest(nil, distro.ImageOptions{Size: imageType.Size(0)}, nil, 0)
 	require.NoError(t, err)
 
-	server := newTestServer(t, t.TempDir(), time.Duration(0), "/api/worker/v1", false)
+	mf, err := manifest.Serialize(nil, nil)
+	require.NoError(t, err)
 
 	job := worker.OSBuildJob{
-		Manifest: manifest,
+		Manifest: mf,
 		PipelineNames: &worker.PipelineNames{
 			Build:   []string{"b"},
 			Payload: []string{"x", "y", "z"},
@@ -244,6 +259,8 @@ func TestArgs(t *testing.T) {
 			},
 		},
 	}
+
+	server := newTestServer(t, t.TempDir(), time.Duration(0), "/api/worker/v1", false)
 	jobId, err := server.EnqueueOSBuild(arch.Name(), &job, "")
 	require.NoError(t, err)
 
@@ -267,14 +284,18 @@ func TestUpload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error getting image type from arch: %v", err)
 	}
-	manifest, _, err := imageType.Manifest(nil, distro.ImageOptions{Size: imageType.Size(0)}, nil, nil, nil, 0)
+	manifest, _, err := imageType.Manifest(nil, distro.ImageOptions{Size: imageType.Size(0)}, nil, 0)
 	if err != nil {
 		t.Fatalf("error creating osbuild manifest: %v", err)
 	}
 	server := newTestServer(t, t.TempDir(), time.Duration(0), "/api/worker/v1", true)
+	mf, err := manifest.Serialize(nil, nil)
+	if err != nil {
+		t.Fatalf("error creating osbuild manifest: %v", err)
+	}
 	handler := server.Handler()
 
-	jobID, err := server.EnqueueOSBuild(arch.Name(), &worker.OSBuildJob{Manifest: manifest}, "")
+	jobID, err := server.EnqueueOSBuild(arch.Name(), &worker.OSBuildJob{Manifest: mf}, "")
 	require.NoError(t, err)
 
 	j, token, typ, args, dynamicArgs, err := server.RequestJob(context.Background(), arch.Name(), []string{worker.JobTypeOSBuild}, []string{""})
@@ -297,14 +318,18 @@ func TestUploadNotAcceptingArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error getting image type from arch: %v", err)
 	}
-	manifest, _, err := imageType.Manifest(nil, distro.ImageOptions{Size: imageType.Size(0)}, nil, nil, nil, 0)
+	manifest, _, err := imageType.Manifest(nil, distro.ImageOptions{Size: imageType.Size(0)}, nil, 0)
 	if err != nil {
 		t.Fatalf("error creating osbuild manifest: %v", err)
 	}
 	server := newTestServer(t, t.TempDir(), time.Duration(0), "/api/worker/v1", false)
 	handler := server.Handler()
+	mf, _ := manifest.Serialize(nil, nil)
+	if err != nil {
+		t.Fatalf("error creating osbuild manifest: %v", err)
+	}
 
-	jobID, err := server.EnqueueOSBuild(arch.Name(), &worker.OSBuildJob{Manifest: manifest}, "")
+	jobID, err := server.EnqueueOSBuild(arch.Name(), &worker.OSBuildJob{Manifest: mf}, "")
 	require.NoError(t, err)
 
 	j, token, typ, args, dynamicArgs, err := server.RequestJob(context.Background(), arch.Name(), []string{worker.JobTypeOSBuild}, []string{""})
@@ -327,14 +352,19 @@ func TestUploadAlteredBasePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error getting image type from arch: %v", err)
 	}
-	manifest, _, err := imageType.Manifest(nil, distro.ImageOptions{Size: imageType.Size(0)}, nil, nil, nil, 0)
+	manifest, _, err := imageType.Manifest(nil, distro.ImageOptions{Size: imageType.Size(0)}, nil, 0)
 	if err != nil {
 		t.Fatalf("error creating osbuild manifest: %v", err)
 	}
+	mf, err := manifest.Serialize(nil, nil)
+	if err != nil {
+		t.Fatalf("error creating osbuild manifest: %v", err)
+	}
+
 	server := newTestServer(t, t.TempDir(), time.Duration(0), "/api/image-builder-worker/v1", true)
 	handler := server.Handler()
 
-	jobID, err := server.EnqueueOSBuild(arch.Name(), &worker.OSBuildJob{Manifest: manifest}, "")
+	jobID, err := server.EnqueueOSBuild(arch.Name(), &worker.OSBuildJob{Manifest: mf}, "")
 	require.NoError(t, err)
 
 	j, token, typ, args, dynamicArgs, err := server.RequestJob(context.Background(), arch.Name(), []string{worker.JobTypeOSBuild}, []string{""})
@@ -408,7 +438,7 @@ func TestRequestJobById(t *testing.T) {
 func TestMixedOSBuildJob(t *testing.T) {
 	require := require.New(t)
 
-	emptyManifestV2 := distro.Manifest(`{"version":"2","pipelines":{}}`)
+	emptyManifestV2 := manifest.OSBuildManifest(`{"version":"2","pipelines":{}}`)
 	server := newTestServer(t, t.TempDir(), time.Millisecond*10, "/", false)
 	fbPipelines := &worker.PipelineNames{Build: distro.BuildPipelinesFallback(), Payload: distro.PayloadPipelinesFallback()}
 
@@ -737,7 +767,7 @@ func enqueueAndFinishTestJobDependencies(s *worker.Server, deps []testJob) ([]uu
 		switch dep.main.(type) {
 		case *worker.OSBuildJob:
 			job := dep.main.(*worker.OSBuildJob)
-			id, err = s.EnqueueOSBuildAsDependency(distro.X86_64ArchName, job, depUUIDs, "")
+			id, err = s.EnqueueOSBuildAsDependency(platform.ARCH_X86_64.String(), job, depUUIDs, "")
 			if err != nil {
 				return nil, err
 			}
@@ -807,7 +837,7 @@ func enqueueAndFinishTestJobDependencies(s *worker.Server, deps []testJob) ([]uu
 		}
 
 		// request the previously added Job
-		_, token, _, _, _, err := s.RequestJobById(context.Background(), distro.X86_64ArchName, id)
+		_, token, _, _, _, err := s.RequestJobById(context.Background(), platform.ARCH_X86_64.String(), id)
 		if err != nil {
 			return nil, err
 		}

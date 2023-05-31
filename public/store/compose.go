@@ -7,6 +7,7 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
+	"github.com/ondrejbudai/osbuild-composer-public/public/manifest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 )
@@ -23,7 +24,7 @@ func (ste *StateTransitionError) Error() string {
 type ImageBuild struct {
 	ID          int
 	ImageType   distro.ImageType
-	Manifest    distro.Manifest
+	Manifest    manifest.OSBuildManifest
 	Targets     []*target.Target
 	JobCreated  time.Time
 	JobStarted  time.Time

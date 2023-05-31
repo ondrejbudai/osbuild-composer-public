@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
+	"github.com/ondrejbudai/osbuild-composer-public/public/manifest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
@@ -16,7 +17,7 @@ import (
 //
 
 type OSBuildJob struct {
-	Manifest distro.Manifest `json:"manifest,omitempty"`
+	Manifest manifest.OSBuildManifest `json:"manifest,omitempty"`
 	// Index of the ManifestJobByIDResult instance in the job's dynamic arguments slice
 	ManifestDynArgsIdx *int             `json:"manifest_dyn_args_idx,omitempty"`
 	Targets            []*target.Target `json:"targets,omitempty"`
@@ -243,8 +244,8 @@ type DepsolveJobResult struct {
 type ManifestJobByID struct{}
 
 type ManifestJobByIDResult struct {
-	Manifest distro.Manifest `json:"data,omitempty"`
-	Error    string          `json:"error"`
+	Manifest manifest.OSBuildManifest `json:"data,omitempty"`
+	Error    string                   `json:"error"`
 	JobResult
 }
 

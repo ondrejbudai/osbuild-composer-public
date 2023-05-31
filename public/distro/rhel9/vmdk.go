@@ -3,6 +3,7 @@ package rhel9
 import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
+	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 )
 
@@ -62,7 +63,7 @@ func vmdkCommonPackageSet(t *imageType) rpmmd.PackageSet {
 		},
 	}.Append(coreOsCommonPackageSet(t))
 
-	if t.arch.Name() == distro.X86_64ArchName {
+	if t.arch.Name() == platform.ARCH_X86_64.String() {
 		ps = ps.Append(rpmmd.PackageSet{
 			Include: []string{
 				// packages below used to come from @core group and were not excluded

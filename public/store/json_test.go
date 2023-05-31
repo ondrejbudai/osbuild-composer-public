@@ -19,6 +19,7 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro/fedora"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro/test_distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
+	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 )
@@ -313,7 +314,7 @@ func Test_upgrade(t *testing.T) {
 		assert.NoError(err)
 
 		// The test data has image types only supported on Fedora X86_64
-		registry.SetHostArchName(distro.X86_64ArchName)
+		registry.SetHostArchName(platform.ARCH_X86_64.String())
 		store := newStoreFromV0(storeStruct, registry, nil)
 		assert.Equal(1, len(store.blueprints))
 		assert.Equal(1, len(store.blueprintsChanges))

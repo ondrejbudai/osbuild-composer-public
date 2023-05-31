@@ -1,9 +1,3 @@
-// Package manifest implements a standard set of osbuild pipelines. A pipeline
-// conceptually represents a named filesystem tree, optionally generated
-// in a provided build root (represented by another pipeline). All inputs
-// to a pipeline must be explicitly specified, either in terms of other
-// pipeline, in terms of content addressable inputs or in terms of static
-// parameters to the inherited Pipeline structs.
 package manifest
 
 import (
@@ -15,20 +9,56 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 )
 
+// Pipeline serializes to a series of stages that modify a file system tree
+// when used as input to osbuild. Different Pipelines serialize to different
+// sequences of stages depending on their type and configuration.
 type Pipeline interface {
+
+	// Name of the pipeline.
 	Name() string
+
+	// Checkpoint this pipeline when osbuild is called.
 	Checkpoint()
+
+	// Export this tree of this pipeline as an artifact when osbuild is called.
 	Export() *artifact.Artifact
+
 	getCheckpoint() bool
+
 	getExport() bool
+
+	// getBuildPackages returns the list of packages required for the pipeline
+	// at build time.
 	getBuildPackages() []string
+	// getPackageSetChain returns the list of package names to be required by
+	// the pipeline. Each set should be depsolved sequentially to resolve
+	// dependencies and full package specs. See the dnfjson package for more
+	// details.
 	getPackageSetChain() []rpmmd.PackageSet
-	serializeStart([]rpmmd.PackageSpec)
+	// getContainerSources returns the list of containers sources to be resolved and
+	// embedded by the pipeline. Each source should be resolved to its full
+	// Spec. See the container package for more details.
+	getContainerSources() []container.SourceSpec
+	// getOSTreeCommitSources returns the list of ostree commit sources to be
+	// resolved and added to the pipeline. Each source should be resolved to
+	// its full Spec. See the ostree package for more details.
+	getOSTreeCommitSources() []ostree.SourceSpec
+
+	serializeStart([]rpmmd.PackageSpec, []container.Spec)
 	serializeEnd()
 	serialize() osbuild.Pipeline
+
+	// getPackageSpecs returns the list of specifications for packages that
+	// will be installed to the pipeline tree.
 	getPackageSpecs() []rpmmd.PackageSpec
-	getOSTreeCommits() []ostree.CommitSpec
+	// getContainerSpecs returns the list of specifications for the containers
+	// that will be installed to the pipeline tree.
 	getContainerSpecs() []container.Spec
+	// getOSTreeCommits returns the list of specifications for the commits
+	// required by the pipeline.
+	getOSTreeCommits() []ostree.CommitSpec
+	// getInline returns the list of inlined data content that will be used to
+	// embed files in the pipeline tree.
 	getInline() []string
 }
 
@@ -77,6 +107,14 @@ func (p Base) getPackageSetChain() []rpmmd.PackageSet {
 	return nil
 }
 
+func (p Base) getContainerSources() []container.SourceSpec {
+	return nil
+}
+
+func (p Base) getOSTreeCommitSources() []ostree.SourceSpec {
+	return nil
+}
+
 func (p Base) getPackageSpecs() []rpmmd.PackageSpec {
 	return []rpmmd.PackageSpec{}
 }
@@ -117,7 +155,7 @@ func NewBase(m *Manifest, name string, build *Build) Base {
 
 // serializeStart must be called exactly once before each call
 // to serialize().
-func (p Base) serializeStart([]rpmmd.PackageSpec) {
+func (p Base) serializeStart([]rpmmd.PackageSpec, []container.Spec) {
 }
 
 // serializeEnd must be called exactly once after each call to

@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"github.com/ondrejbudai/osbuild-composer-public/public/container"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/runner"
@@ -67,7 +68,7 @@ func (p *Build) getPackageSpecs() []rpmmd.PackageSpec {
 	return p.packageSpecs
 }
 
-func (p *Build) serializeStart(packages []rpmmd.PackageSpec) {
+func (p *Build) serializeStart(packages []rpmmd.PackageSpec, _ []container.Spec) {
 	if len(p.packageSpecs) > 0 {
 		panic("double call to serializeStart()")
 	}

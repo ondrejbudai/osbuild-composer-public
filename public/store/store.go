@@ -19,6 +19,7 @@ import (
 
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/jsondb"
+	"github.com/ondrejbudai/osbuild-composer-public/public/manifest"
 
 	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
@@ -365,7 +366,7 @@ func (s *Store) GetAllComposes() map[uuid.UUID]Compose {
 }
 
 func (s *Store) PushCompose(composeID uuid.UUID,
-	manifest distro.Manifest,
+	manifest manifest.OSBuildManifest,
 	imageType distro.ImageType,
 	bp *blueprint.Blueprint,
 	size uint64,
@@ -404,7 +405,7 @@ func (s *Store) PushCompose(composeID uuid.UUID,
 // Set testSuccess to create a fake successful compose, otherwise it will create a failed compose
 // It does not actually run a compose job
 func (s *Store) PushTestCompose(composeID uuid.UUID,
-	manifest distro.Manifest,
+	manifest manifest.OSBuildManifest,
 	imageType distro.ImageType,
 	bp *blueprint.Blueprint,
 	size uint64,
@@ -582,11 +583,10 @@ func (s *Store) GetAllDistroSources(distro string) map[string]SourceConfig {
 
 func NewSourceConfig(repo rpmmd.RepoConfig, system bool) SourceConfig {
 	sc := SourceConfig{
-		Name:     repo.Name,
-		System:   system,
-		RHSM:     repo.RHSM,
-		GPGKeys:  repo.GPGKeys,
-		CheckSSL: !repo.IgnoreSSL,
+		Name:    repo.Name,
+		System:  system,
+		RHSM:    repo.RHSM,
+		GPGKeys: repo.GPGKeys,
 	}
 
 	if repo.CheckGPG != nil {
@@ -595,6 +595,14 @@ func NewSourceConfig(repo rpmmd.RepoConfig, system bool) SourceConfig {
 
 	if repo.CheckRepoGPG != nil {
 		sc.CheckRepoGPG = *repo.CheckRepoGPG
+	}
+
+	if repo.IgnoreSSL != nil {
+		sc.CheckSSL = !*repo.IgnoreSSL
+	} else {
+		// default should be true to maintain backwards compatibility
+		// and current behaviour
+		sc.CheckSSL = true
 	}
 
 	if len(repo.BaseURLs) != 0 {
@@ -615,7 +623,7 @@ func (s *SourceConfig) RepoConfig(name string) rpmmd.RepoConfig {
 	var repo rpmmd.RepoConfig
 
 	repo.Name = name
-	repo.IgnoreSSL = !s.CheckSSL
+	repo.IgnoreSSL = common.ToPtr(!s.CheckSSL)
 	repo.CheckGPG = &s.CheckGPG
 	repo.RHSM = s.RHSM
 	repo.CheckRepoGPG = &s.CheckRepoGPG

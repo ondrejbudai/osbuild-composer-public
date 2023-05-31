@@ -12,6 +12,7 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
+	"github.com/ondrejbudai/osbuild-composer-public/public/manifest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 )
@@ -41,15 +42,15 @@ type composesV0 map[uuid.UUID]composeV0
 
 // ImageBuild represents a single image build inside a compose
 type imageBuildV0 struct {
-	ID          int              `json:"id"`
-	ImageType   string           `json:"image_type"`
-	Manifest    distro.Manifest  `json:"manifest"`
-	Targets     []*target.Target `json:"targets"`
-	JobCreated  time.Time        `json:"job_created"`
-	JobStarted  time.Time        `json:"job_started"`
-	JobFinished time.Time        `json:"job_finished"`
-	Size        uint64           `json:"size"`
-	JobID       uuid.UUID        `json:"jobid,omitempty"`
+	ID          int                      `json:"id"`
+	ImageType   string                   `json:"image_type"`
+	Manifest    manifest.OSBuildManifest `json:"manifest"`
+	Targets     []*target.Target         `json:"targets"`
+	JobCreated  time.Time                `json:"job_created"`
+	JobStarted  time.Time                `json:"job_started"`
+	JobFinished time.Time                `json:"job_finished"`
+	Size        uint64                   `json:"size"`
+	JobID       uuid.UUID                `json:"jobid,omitempty"`
 
 	// Kept for backwards compatibility. Image builds which were done
 	// before the move to the job queue use this to store whether they

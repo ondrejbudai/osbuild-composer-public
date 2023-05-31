@@ -8,14 +8,15 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/container"
 	"github.com/ondrejbudai/osbuild-composer-public/public/disk"
-	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/environment"
 	"github.com/ondrejbudai/osbuild-composer-public/public/fsnode"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
 	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
 	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
+	"github.com/ondrejbudai/osbuild-composer-public/public/rhsm/facts"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/shell"
+	"github.com/ondrejbudai/osbuild-composer-public/public/subscription"
 	"github.com/ondrejbudai/osbuild-composer-public/public/users"
 	"github.com/ondrejbudai/osbuild-composer-public/public/workload"
 )
@@ -42,8 +43,9 @@ type OSCustomizations struct {
 	// Additional repos to install the base packages from.
 	ExtraBaseRepos []rpmmd.RepoConfig
 
-	// Containers to embed in the image
-	Containers []container.Spec
+	// Containers to embed in the image (source specification)
+	// TODO: move to workload
+	Containers []container.SourceSpec
 
 	// KernelName indicates that a kernel is installed, and names the kernel
 	// package.
@@ -118,10 +120,10 @@ type OSCustomizations struct {
 	WAAgentConfig       *osbuild.WAAgentConfStageOptions
 	UdevRules           *osbuild.UdevRulesStageOptions
 	LeapSecTZ           *string
-	FactAPIType         string
+	FactAPIType         *facts.APIType
 
-	Subscription *distro.SubscriptionImageOptions
-	RHSMConfig   map[distro.RHSMSubscriptionStatus]*osbuild.RHSMStageOptions
+	Subscription *subscription.ImageOptions
+	RHSMConfig   map[subscription.RHSMStatus]*osbuild.RHSMStageOptions
 
 	// Custom directories and files to create in the image
 	Directories []*fsnode.Directory
@@ -145,10 +147,11 @@ type OS struct {
 	// Partition table, if nil the tree cannot be put on a partitioned disk
 	PartitionTable *disk.PartitionTable
 
-	repos        []rpmmd.RepoConfig
-	packageSpecs []rpmmd.PackageSpec
-	platform     platform.Platform
-	kernelVer    string
+	repos          []rpmmd.RepoConfig
+	packageSpecs   []rpmmd.PackageSpec
+	containerSpecs []container.Spec
+	platform       platform.Platform
+	kernelVer      string
 
 	// NoBLS configures the image bootloader with traditional menu entries
 	// instead of BLS. Required for legacy systems like RHEL 7.
@@ -218,11 +221,12 @@ func (p *OS) getPackageSetChain() []rpmmd.PackageSet {
 		}
 	}
 
+	osRepos := append(p.repos, p.ExtraBaseRepos...)
 	chain := []rpmmd.PackageSet{
 		{
 			Include:      append(packages, p.ExtraBasePackages...),
 			Exclude:      p.ExcludeBasePackages,
-			Repositories: append(p.repos, p.ExtraBaseRepos...),
+			Repositories: osRepos,
 		},
 	}
 
@@ -231,12 +235,16 @@ func (p *OS) getPackageSetChain() []rpmmd.PackageSet {
 		if len(workloadPackages) > 0 {
 			chain = append(chain, rpmmd.PackageSet{
 				Include:      workloadPackages,
-				Repositories: append(p.repos, p.Workload.GetRepos()...),
+				Repositories: append(osRepos, p.Workload.GetRepos()...),
 			})
 		}
 	}
 
 	return chain
+}
+
+func (p *OS) getContainerSources() []container.SourceSpec {
+	return p.OSCustomizations.Containers
 }
 
 func (p *OS) getBuildPackages() []string {
@@ -280,14 +288,17 @@ func (p *OS) getPackageSpecs() []rpmmd.PackageSpec {
 }
 
 func (p *OS) getContainerSpecs() []container.Spec {
-	return p.Containers
+	return p.containerSpecs
 }
 
-func (p *OS) serializeStart(packages []rpmmd.PackageSpec) {
+func (p *OS) serializeStart(packages []rpmmd.PackageSpec, containers []container.Spec) {
 	if len(p.packageSpecs) > 0 {
 		panic("double call to serializeStart()")
 	}
+
 	p.packageSpecs = packages
+	p.containerSpecs = containers
+
 	if p.KernelName != "" {
 		p.kernelVer = rpmmd.GetVerStrFromPackageSpecListPanic(p.packageSpecs, p.KernelName)
 	}
@@ -299,6 +310,7 @@ func (p *OS) serializeEnd() {
 	}
 	p.kernelVer = ""
 	p.packageSpecs = nil
+	p.containerSpecs = nil
 }
 
 func (p *OS) serialize() osbuild.Pipeline {
@@ -312,7 +324,12 @@ func (p *OS) serialize() osbuild.Pipeline {
 		pipeline.AddStage(osbuild.NewOSTreePasswdStage("org.osbuild.source", p.OSTreeParent.Checksum))
 	}
 
-	rpmOptions := osbuild.NewRPMStageOptions(p.repos)
+	// collect all repos for this pipeline to create the repository options
+	allRepos := append(p.repos, p.ExtraBaseRepos...)
+	if p.Workload != nil {
+		allRepos = append(allRepos, p.Workload.GetRepos()...)
+	}
+	rpmOptions := osbuild.NewRPMStageOptions(allRepos)
 	if p.ExcludeDocs {
 		if rpmOptions.Exclude == nil {
 			rpmOptions.Exclude = &osbuild.Exclude{}
@@ -335,8 +352,8 @@ func (p *OS) serialize() osbuild.Pipeline {
 		}
 	}
 
-	if len(p.Containers) > 0 {
-		images := osbuild.NewContainersInputForSources(p.Containers)
+	if len(p.containerSpecs) > 0 {
+		images := osbuild.NewContainersInputForSources(p.containerSpecs)
 
 		var storagePath string
 
@@ -352,7 +369,7 @@ func (p *OS) serialize() osbuild.Pipeline {
 			pipeline.AddStage(osbuild.NewContainersStorageConfStage(containerStoreOpts))
 		}
 
-		manifests := osbuild.NewFilesInputForManifestLists(p.Containers)
+		manifests := osbuild.NewFilesInputForManifestLists(p.containerSpecs)
 		skopeo := osbuild.NewSkopeoStage(storagePath, images, manifests)
 		pipeline.AddStage(skopeo)
 	}
@@ -519,11 +536,11 @@ func (p *OS) serialize() osbuild.Pipeline {
 			WaitForNetwork: true,
 		}))
 
-		if rhsmConfig, exists := p.RHSMConfig[distro.RHSMConfigWithSubscription]; exists {
+		if rhsmConfig, exists := p.RHSMConfig[subscription.RHSMConfigWithSubscription]; exists {
 			pipeline.AddStage(osbuild.NewRHSMStage(rhsmConfig))
 		}
 	} else {
-		if rhsmConfig, exists := p.RHSMConfig[distro.RHSMConfigNoSubscription]; exists {
+		if rhsmConfig, exists := p.RHSMConfig[subscription.RHSMConfigNoSubscription]; exists {
 			pipeline.AddStage(osbuild.NewRHSMStage(rhsmConfig))
 		}
 	}
@@ -605,10 +622,10 @@ func (p *OS) serialize() osbuild.Pipeline {
 		pipeline.AddStage(osbuild.NewOscapRemediationStage(p.OpenSCAPConfig))
 	}
 
-	if p.FactAPIType != "" {
+	if p.FactAPIType != nil {
 		pipeline.AddStage(osbuild.NewRHSMFactsStage(&osbuild.RHSMFactsStageOptions{
 			Facts: osbuild.RHSMFacts{
-				ApiType: p.FactAPIType,
+				ApiType: p.FactAPIType.String(),
 			},
 		}))
 	}

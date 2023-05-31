@@ -12,6 +12,7 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro/distro_test_common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
+	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,84 +31,6 @@ func TestDistro_Manifest(t *testing.T) {
 	)
 }
 
-var (
-	v1manifests = []string{
-		`{}`,
-		`
-{
-	"sources": {
-		"org.osbuild.files": {
-			"urls": {}
-		}
-	},
-	"pipeline": {
-		"build": {
-			"pipeline": {
-				"stages": []
-			},
-			"runner": "org.osbuild.rhel84"
-		},
-		"stages": [],
-		"assembler": {
-			"name": "org.osbuild.qemu",
-			"options": {}
-		}
-	}
-}`,
-	}
-
-	v2manifests = []string{
-		`{"version": "2"}`,
-		`
-{
-	"version": "2",
-	"pipelines": [
-		{
-			"name": "build",
-			"runner": "org.osbuild.rhel84",
-			"stages": []
-		}
-	],
-	"sources": {
-		"org.osbuild.curl": {
-			"items": {}
-		}
-	}
-}`,
-	}
-)
-
-func TestDistro_Version(t *testing.T) {
-	require := require.New(t)
-	expectedVersion := "1"
-	for idx, rawManifest := range v1manifests {
-		manifest := distro.Manifest(rawManifest)
-		detectedVersion, err := manifest.Version()
-		require.NoError(err, "Could not detect Manifest version for %d: %v", idx, err)
-		require.Equal(expectedVersion, detectedVersion, "in manifest %d", idx)
-	}
-
-	expectedVersion = "2"
-	for idx, rawManifest := range v2manifests {
-		manifest := distro.Manifest(rawManifest)
-		detectedVersion, err := manifest.Version()
-		require.NoError(err, "Could not detect Manifest version for %d: %v", idx, err)
-		require.Equal(expectedVersion, detectedVersion, "in manifest %d", idx)
-	}
-
-	{
-		manifest := distro.Manifest("")
-		_, err := manifest.Version()
-		require.Error(err, "Empty manifest did not return an error")
-	}
-
-	{
-		manifest := distro.Manifest("{")
-		_, err := manifest.Version()
-		require.Error(err, "Invalid manifest did not return an error")
-	}
-}
-
 // Ensure that all package sets defined in the package set chains are defined for the image type
 func TestImageType_PackageSetsChains(t *testing.T) {
 	distros := distroregistry.NewDefault()
@@ -121,13 +44,26 @@ func TestImageType_PackageSetsChains(t *testing.T) {
 					imageType, err := arch.GetImageType(imageTypeName)
 					require.Nil(t, err)
 
-					imagePkgSets := imageType.PackageSets(blueprint.Blueprint{}, distro.ImageOptions{
-						OSTree: distro.OSTreeImageOptions{
+					// set up bare minimum args for image type
+					var customizations *blueprint.Customizations
+					if imageType.Name() == "edge-simplified-installer" {
+						customizations = &blueprint.Customizations{
+							InstallationDevice: "/dev/null",
+						}
+					}
+					bp := blueprint.Blueprint{
+						Customizations: customizations,
+					}
+					options := distro.ImageOptions{
+						OSTree: &ostree.ImageOptions{
 							URL:           "foo",
 							ImageRef:      "bar",
 							FetchChecksum: "baz",
 						},
-					}, nil)
+					}
+					manifest, _, err := imageType.Manifest(&bp, options, nil, 0)
+					require.NoError(t, err)
+					imagePkgSets := manifest.Content.PackageSets
 					for packageSetName := range imageType.PackageSetsChains() {
 						_, ok := imagePkgSets[packageSetName]
 						if !ok {
@@ -173,17 +109,17 @@ func TestImageTypePipelineNames(t *testing.T) {
 		Pipelines []pipeline `json:"pipelines"`
 	}
 
-	require := require.New(t)
+	assert := assert.New(t)
 	distros := distroregistry.NewDefault()
 	for _, distroName := range distros.List() {
 		d := distros.GetDistro(distroName)
 		for _, archName := range d.ListArches() {
 			arch, err := d.GetArch(archName)
-			require.Nil(err)
+			assert.Nil(err)
 			for _, imageTypeName := range arch.ListImageTypes() {
 				t.Run(fmt.Sprintf("%s/%s/%s", distroName, archName, imageTypeName), func(t *testing.T) {
 					imageType, err := arch.GetImageType(imageTypeName)
-					require.Nil(err)
+					assert.Nil(err)
 
 					// set up bare minimum args for image type
 					var customizations *blueprint.Customizations
@@ -207,11 +143,10 @@ func TestImageTypePipelineNames(t *testing.T) {
 							CheckGPG:    common.ToPtr(true),
 						},
 					}
-					containers := make([]container.Spec, 0)
 					seed := int64(0)
 
 					// Add ostree options for image types that require them
-					options.OSTree = distro.OSTreeImageOptions{
+					options.OSTree = &ostree.ImageOptions{
 						ImageRef:      imageType.OSTreeRef(),
 						URL:           "https://example.com/repo",
 						FetchChecksum: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -232,35 +167,48 @@ func TestImageTypePipelineNames(t *testing.T) {
 						packageSets[plName] = minimalPackageSet
 					}
 
-					m, _, err := imageType.Manifest(bp.Customizations, options, repos, packageSets, containers, seed)
-					require.NoError(err)
-					pm := new(manifest)
-					err = json.Unmarshal(m, pm)
-					require.NoError(err)
+					m, _, err := imageType.Manifest(&bp, options, repos, seed)
+					assert.NoError(err)
 
-					require.Equal(len(allPipelines), len(pm.Pipelines))
+					containers := make(map[string][]container.Spec, 0)
+					mf, err := m.Serialize(packageSets, containers)
+					assert.NoError(err)
+					pm := new(manifest)
+					err = json.Unmarshal(mf, pm)
+					assert.NoError(err)
+
+					assert.Equal(len(allPipelines), len(pm.Pipelines))
 					for idx := range pm.Pipelines {
 						// manifest pipeline names should be identical to the ones
 						// defined in the image type and in the same order
-						require.Equal(allPipelines[idx], pm.Pipelines[idx].Name)
+						assert.Equal(allPipelines[idx], pm.Pipelines[idx].Name)
 
 						if pm.Pipelines[idx].Name == "os" {
 							rpmStagePresent := false
 							for _, s := range pm.Pipelines[idx].Stages {
 								if s.Type == "org.osbuild.rpm" {
 									rpmStagePresent = true
-									require.Equal(repos[0].GPGKeys, s.Options.GPGKeys)
+									if imageTypeName != "azure-eap7-rhui" {
+										// NOTE (akoutsou): Ideally, at some point we will
+										// have a good way of reading what's supported by
+										// each image type and we can skip or adapt tests
+										// based on this information. For image types with
+										// a preset workload, payload packages are ignored
+										// and dropped and so are the payload
+										// repo gpg keys.
+										assert.Equal(repos[0].GPGKeys, s.Options.GPGKeys)
+									}
 								}
 							}
 							// make sure the gpg keys check was reached
-							require.True(rpmStagePresent)
+							assert.True(rpmStagePresent)
 						}
 					}
 
 					// The last pipeline should match the export pipeline.
 					// This might change in the future, but for now, let's make
 					// sure they match.
-					require.Equal(imageType.Exports()[0], pm.Pipelines[len(pm.Pipelines)-1].Name)
+					assert.Equal(imageType.Exports()[0], pm.Pipelines[len(pm.Pipelines)-1].Name)
 
 				})
 			}
@@ -470,12 +418,21 @@ func TestPipelineRepositories(t *testing.T) {
 					arch, err := d.GetArch(archName)
 					require.Nil(err)
 					for _, imageTypeName := range arch.ListImageTypes() {
+						if imageTypeName == "azure-eap7-rhui" {
+							// NOTE (akoutsou): Ideally, at some point we will
+							// have a good way of reading what's supported by
+							// each image type and we can skip or adapt tests
+							// based on this information. For image types with
+							// a preset workload, payload packages are ignored
+							// and dropped.
+							continue
+						}
 						t.Run(fmt.Sprintf("%s/%s/%s", distroName, archName, imageTypeName), func(t *testing.T) {
 							imageType, err := arch.GetImageType(imageTypeName)
 							require.Nil(err)
 
 							// set up bare minimum args for image type
-							customizations := &blueprint.Customizations{}
+							var customizations *blueprint.Customizations
 							if imageType.Name() == "edge-simplified-installer" {
 								customizations = &blueprint.Customizations{
 									InstallationDevice: "/dev/null",
@@ -490,14 +447,16 @@ func TestPipelineRepositories(t *testing.T) {
 							options := distro.ImageOptions{}
 
 							// Add ostree options for image types that require them
-							options.OSTree = distro.OSTreeImageOptions{
+							options.OSTree = &ostree.ImageOptions{
 								ImageRef:      imageType.OSTreeRef(),
 								URL:           "https://example.com/repo",
 								FetchChecksum: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
 							}
 
 							repos := tCase.repos
-							packageSets := imageType.PackageSets(bp, options, repos)
+							manifest, _, err := imageType.Manifest(&bp, options, repos, 0)
+							require.NoError(err)
+							packageSets := manifest.Content.PackageSets
 
 							var globals stringSet
 							if len(tCase.result["*"]) > 0 {
@@ -530,7 +489,6 @@ func TestPipelineRepositories(t *testing.T) {
 
 									// expected set for current package set should be merged with globals
 									expected := expChain[setIdx]
-
 									if !repoNamesSet.Equals(expected) {
 										t.Errorf("repos for package set %q [idx: %d] %s (distro %q image type %q) do not match expected %s", psName, setIdx, repoNamesSet, d.Name(), imageType.Name(), expected)
 									}

@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"strings"
 
-	"github.com/sirupsen/logrus"
 	"golang.org/x/exp/slices"
 
 	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
@@ -40,7 +39,7 @@ const (
 	blueprintPkgsKey = "blueprint"
 )
 
-type imageFunc func(workload workload.Workload, t *imageType, customizations *blueprint.Customizations, options distro.ImageOptions, packageSets map[string]rpmmd.PackageSet, containers []container.Spec, rng *rand.Rand) (image.ImageKind, error)
+type imageFunc func(workload workload.Workload, t *imageType, customizations *blueprint.Customizations, options distro.ImageOptions, packageSets map[string]rpmmd.PackageSet, containers []container.SourceSpec, rng *rand.Rand) (image.ImageKind, error)
 
 type packageSetFunc func(t *imageType) rpmmd.PackageSet
 
@@ -182,23 +181,45 @@ func (t *imageType) PartitionType() string {
 	return basePartitionTable.Type
 }
 
-func (t *imageType) initializeManifest(bp *blueprint.Blueprint,
+func (t *imageType) Manifest(bp *blueprint.Blueprint,
 	options distro.ImageOptions,
 	repos []rpmmd.RepoConfig,
-	packageSets map[string]rpmmd.PackageSet,
-	containers []container.Spec,
 	seed int64) (*manifest.Manifest, []string, error) {
 
-	warnings, err := t.checkOptions(bp.Customizations, options, containers)
+	warnings, err := t.checkOptions(bp, options)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	// merge package sets that appear in the image type with the package sets
+	// of the same name from the distro and arch
+	staticPackageSets := make(map[string]rpmmd.PackageSet)
+
+	for name, getter := range t.packageSets {
+		staticPackageSets[name] = getter(t)
+	}
+
+	// amend with repository information and collect payload repos
+	payloadRepos := make([]rpmmd.RepoConfig, 0)
+	for _, repo := range repos {
+		if len(repo.PackageSets) > 0 {
+			// only apply the repo to the listed package sets
+			for _, psName := range repo.PackageSets {
+				if slices.Contains(t.PayloadPackageSets(), psName) {
+					payloadRepos = append(payloadRepos, repo)
+				}
+				ps := staticPackageSets[psName]
+				ps.Repositories = append(ps.Repositories, repo)
+				staticPackageSets[psName] = ps
+			}
+		}
 	}
 
 	w := t.workload
 	if w == nil {
 		cw := &workload.Custom{
 			BaseWorkload: workload.BaseWorkload{
-				Repos: packageSets[blueprintPkgsKey].Repositories,
+				Repos: payloadRepos,
 			},
 			Packages: bp.GetPackagesEx(false),
 		}
@@ -209,6 +230,11 @@ func (t *imageType) initializeManifest(bp *blueprint.Blueprint,
 		w = cw
 	}
 
+	containerSources := make([]container.SourceSpec, len(bp.Containers))
+	for idx := range bp.Containers {
+		containerSources[idx] = container.SourceSpec(bp.Containers[idx])
+	}
+
 	source := rand.NewSource(seed)
 	// math/rand is good enough in this case
 	/* #nosec G404 */
@@ -217,7 +243,7 @@ func (t *imageType) initializeManifest(bp *blueprint.Blueprint,
 	if t.image == nil {
 		return nil, nil, nil
 	}
-	img, err := t.image(w, t, bp.Customizations, options, packageSets, containers, rng)
+	img, err := t.image(w, t, bp.Customizations, options, staticPackageSets, containerSources, rng)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -226,118 +252,12 @@ func (t *imageType) initializeManifest(bp *blueprint.Blueprint,
 	if err != nil {
 		return nil, nil, err
 	}
+
+	manifest.Content.PackageSets = overridePackageNamesInSets(manifest.GetPackageSetChains())
+	manifest.Content.Containers = manifest.GetContainerSourceSpecs()
+	manifest.Content.OSTreeCommits = manifest.GetOSTreeSourceSpecs()
+
 	return &manifest, warnings, err
-}
-
-func (t *imageType) Manifest(customizations *blueprint.Customizations,
-	options distro.ImageOptions,
-	repos []rpmmd.RepoConfig,
-	packageSets map[string][]rpmmd.PackageSpec,
-	containers []container.Spec,
-	seed int64) (distro.Manifest, []string, error) {
-
-	bp := &blueprint.Blueprint{Name: "empty blueprint"}
-	err := bp.Initialize()
-	if err != nil {
-		panic("could not initialize empty blueprint: " + err.Error())
-	}
-	bp.Customizations = customizations
-
-	// the os pipeline filters repos based on the `osPkgsKey` package set, merge the repos which
-	// contain a payload package set into the `osPkgsKey`, so those repos are included when
-	// building the rpm stage in the os pipeline
-	// TODO: roll this into workloads
-	mergedRepos := make([]rpmmd.RepoConfig, 0, len(repos))
-	for _, repo := range repos {
-		for _, pkgsKey := range t.PayloadPackageSets() {
-			// If the repo already contains the osPkgsKey, skip
-			if slices.Contains(repo.PackageSets, osPkgsKey) {
-				break
-			}
-			if slices.Contains(repo.PackageSets, pkgsKey) {
-				repo.PackageSets = append(repo.PackageSets, osPkgsKey)
-			}
-		}
-		mergedRepos = append(mergedRepos, repo)
-	}
-
-	manifest, warnings, err := t.initializeManifest(bp, options, mergedRepos, nil, containers, seed)
-	if err != nil {
-		return distro.Manifest{}, nil, err
-	}
-
-	ret, err := manifest.Serialize(packageSets)
-	if err != nil {
-		return ret, nil, err
-	}
-	return ret, warnings, err
-}
-
-func (t *imageType) PackageSets(bp blueprint.Blueprint, options distro.ImageOptions, repos []rpmmd.RepoConfig) map[string][]rpmmd.PackageSet {
-	// merge package sets that appear in the image type with the package sets
-	// of the same name from the distro and arch
-	packageSets := make(map[string]rpmmd.PackageSet)
-
-	for name, getter := range t.packageSets {
-		packageSets[name] = getter(t)
-	}
-
-	// amend with repository information
-	for _, repo := range repos {
-		if len(repo.PackageSets) > 0 {
-			// only apply the repo to the listed package sets
-			for _, psName := range repo.PackageSets {
-				ps := packageSets[psName]
-				ps.Repositories = append(ps.Repositories, repo)
-				packageSets[psName] = ps
-			}
-		}
-	}
-
-	// In case of Cloud API, this method is called before the ostree commit
-	// is resolved. Unfortunately, initializeManifest when called for
-	// an ostree installer returns an error.
-	//
-	// Work around this by providing a dummy FetchChecksum to convince the
-	// method that it's fine to initialize the manifest. Note that the ostree
-	// content has no effect on the package sets, so this is fine.
-	//
-	// See: https://github.com/ondrejbudai/osbuild-composer-public/issues/3125
-	//
-	// TODO: Remove me when it's possible the get the package set chain without
-	//       resolving the ostree reference before. Also remove the test for
-	//       this workaround
-	if t.rpmOstree && t.bootISO && options.OSTree.FetchChecksum == "" {
-		options.OSTree.FetchChecksum = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-		logrus.Warn("FIXME: Requesting package sets for iot-installer without a resolved ostree ref. Faking one.")
-	}
-
-	// Similar to above, for edge-commit and edge-container, we need to set an
-	// ImageRef in order to properly initialize the manifest and package
-	// selection.
-	options.OSTree.ImageRef = t.OSTreeRef()
-
-	// create a temporary container spec array with the info from the blueprint
-	// to initialize the manifest
-	containers := make([]container.Spec, len(bp.Containers))
-	for idx := range bp.Containers {
-		containers[idx] = container.Spec{
-			Source:    bp.Containers[idx].Source,
-			TLSVerify: bp.Containers[idx].TLSVerify,
-			LocalName: bp.Containers[idx].Name,
-		}
-	}
-
-	// create a manifest object and instantiate it with the computed packageSetChains
-	manifest, _, err := t.initializeManifest(&bp, options, repos, packageSets, containers, 0)
-	if err != nil {
-		// TODO: handle manifest initialization errors more gracefully, we
-		// refuse to initialize manifests with invalid config.
-		logrus.Errorf("Initializing the manifest failed for %s (%s/%s): %v", t.Name(), t.arch.distro.Name(), t.arch.Name(), err)
-		return nil
-	}
-
-	return overridePackageNamesInSets(manifest.GetPackageSetChains())
 }
 
 // Runs overridePackageNames() on each package set's Include and Exclude list
@@ -374,7 +294,8 @@ func overridePackageNames(packages []string) []string {
 
 // checkOptions checks the validity and compatibility of options and customizations for the image type.
 // Returns ([]string, error) where []string, if non-nil, will hold any generated warnings (e.g. deprecation notices).
-func (t *imageType) checkOptions(customizations *blueprint.Customizations, options distro.ImageOptions, containers []container.Spec) ([]string, error) {
+func (t *imageType) checkOptions(bp *blueprint.Blueprint, options distro.ImageOptions) ([]string, error) {
+	customizations := bp.Customizations
 	// holds warnings (e.g. deprecation notices)
 	var warnings []string
 	if t.workload != nil {
@@ -388,13 +309,18 @@ func (t *imageType) checkOptions(customizations *blueprint.Customizations, optio
 		}
 	}
 	// we do not support embedding containers on ostree-derived images, only on commits themselves
-	if len(containers) > 0 && t.rpmOstree && (t.name != "edge-commit" && t.name != "edge-container") {
+	if len(bp.Containers) > 0 && t.rpmOstree && (t.name != "edge-commit" && t.name != "edge-container") {
 		return warnings, fmt.Errorf("embedding containers is not supported for %s on %s", t.name, t.arch.distro.name)
+	}
+
+	ostreeChecksum := ""
+	if options.OSTree != nil {
+		ostreeChecksum = options.OSTree.FetchChecksum
 	}
 
 	if t.bootISO && t.rpmOstree {
 		// check the checksum instead of the URL, because the URL should have been used to resolve the checksum and we need both
-		if options.OSTree.FetchChecksum == "" {
+		if ostreeChecksum == "" {
 			return warnings, fmt.Errorf("boot ISO image type %q requires specifying a URL from which to retrieve the OSTree commit", t.name)
 		}
 
@@ -435,7 +361,7 @@ func (t *imageType) checkOptions(customizations *blueprint.Customizations, optio
 
 	if t.name == "edge-raw-image" {
 		// check the checksum instead of the URL, because the URL should have been used to resolve the checksum and we need both
-		if options.OSTree.FetchChecksum == "" {
+		if ostreeChecksum == "" {
 			return warnings, fmt.Errorf("edge raw images require specifying a URL from which to retrieve the OSTree commit")
 		}
 

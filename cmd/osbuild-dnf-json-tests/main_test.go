@@ -14,6 +14,8 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	rhel "github.com/ondrejbudai/osbuild-composer-public/public/distro/rhel8"
 	"github.com/ondrejbudai/osbuild-composer-public/public/dnfjson"
+	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
+	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 )
 
@@ -43,18 +45,28 @@ func TestCrossArchDepsolve(t *testing.T) {
 				t.Run(imgTypeStr, func(t *testing.T) {
 					imgType, err := arch.GetImageType(imgTypeStr)
 					require.NoError(t, err)
-
-					packages := imgType.PackageSets(blueprint.Blueprint{},
+					// set up bare minimum args for image type
+					var customizations *blueprint.Customizations
+					if imgTypeStr == "edge-simplified-installer" {
+						customizations = &blueprint.Customizations{
+							InstallationDevice: "/dev/null",
+						}
+					}
+					manifest, _, err := imgType.Manifest(
+						&blueprint.Blueprint{
+							Customizations: customizations,
+						},
 						distro.ImageOptions{
-							OSTree: distro.OSTreeImageOptions{
+							OSTree: &ostree.ImageOptions{
 								URL:           "foo",
 								ImageRef:      "bar",
 								FetchChecksum: "baz",
 							},
 						},
-						repos[archStr])
+						repos[archStr], 0)
+					assert.NoError(t, err)
 
-					for _, set := range packages {
+					for _, set := range manifest.Content.PackageSets {
 						_, err = solver.Depsolve(set)
 						assert.NoError(t, err)
 					}
@@ -75,21 +87,23 @@ func TestDepsolvePackageSets(t *testing.T) {
 
 	// Set up temporary directory for rpm/dnf cache
 	dir := t.TempDir()
-	solver := dnfjson.NewSolver(cs9.ModulePlatformID(), cs9.Releasever(), distro.X86_64ArchName, cs9.Name(), dir)
+	solver := dnfjson.NewSolver(cs9.ModulePlatformID(), cs9.Releasever(), platform.ARCH_X86_64.String(), cs9.Name(), dir)
 
 	repos, err := rpmmd.LoadRepositories([]string{repoDir}, cs9.Name())
 	require.NoErrorf(t, err, "Failed to LoadRepositories %v", cs9.Name())
-	x86Repos, ok := repos[distro.X86_64ArchName]
-	require.Truef(t, ok, "failed to get %q repos for %q", distro.X86_64ArchName, cs9.Name())
+	x86Repos, ok := repos[platform.ARCH_X86_64.String()]
+	require.Truef(t, ok, "failed to get %q repos for %q", platform.ARCH_X86_64.String(), cs9.Name())
 
-	x86Arch, err := cs9.GetArch(distro.X86_64ArchName)
-	require.Nilf(t, err, "failed to get %q arch of %q distro", distro.X86_64ArchName, cs9.Name())
+	x86Arch, err := cs9.GetArch(platform.ARCH_X86_64.String())
+	require.Nilf(t, err, "failed to get %q arch of %q distro", platform.ARCH_X86_64.String(), cs9.Name())
 
 	qcow2ImageTypeName := "qcow2"
 	qcow2Image, err := x86Arch.GetImageType(qcow2ImageTypeName)
-	require.Nilf(t, err, "failed to get %q image type of %q/%q distro/arch", qcow2ImageTypeName, cs9.Name(), distro.X86_64ArchName)
+	require.Nilf(t, err, "failed to get %q image type of %q/%q distro/arch", qcow2ImageTypeName, cs9.Name(), platform.ARCH_X86_64.String())
 
-	imagePkgSets := qcow2Image.PackageSets(blueprint.Blueprint{Packages: []blueprint.Package{{Name: "bind"}}}, distro.ImageOptions{}, x86Repos)
+	manifestSource, _, err := qcow2Image.Manifest(&blueprint.Blueprint{Packages: []blueprint.Package{{Name: "bind"}}}, distro.ImageOptions{}, x86Repos, 0)
+	require.Nilf(t, err, "failed to initialise manifest for %q image type of %q/%q distro/arch", qcow2ImageTypeName, cs9.Name(), platform.ARCH_X86_64.String())
+	imagePkgSets := manifestSource.Content.PackageSets
 
 	gotPackageSpecsSets := make(map[string][]rpmmd.PackageSpec, len(imagePkgSets))
 	for name, pkgSet := range imagePkgSets {

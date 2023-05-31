@@ -5,7 +5,9 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/disk"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
+	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
+	"github.com/ondrejbudai/osbuild-composer-public/public/subscription"
 )
 
 var azureRhuiImgType = imageType{
@@ -151,8 +153,8 @@ var azureDefaultImgConfig = &distro.ImageConfig{
 			RDEnableSwap: common.ToPtr(false),
 		},
 	},
-	RHSMConfig: map[distro.RHSMSubscriptionStatus]*osbuild.RHSMStageOptions{
-		distro.RHSMConfigNoSubscription: {
+	RHSMConfig: map[subscription.RHSMStatus]*osbuild.RHSMStageOptions{
+		subscription.RHSMConfigNoSubscription: {
 			YumPlugins: &osbuild.RHSMStageOptionsDnfPlugins{
 				SubscriptionManager: &osbuild.RHSMStageOptionsDnfPlugin{
 					Enabled: false,
@@ -167,7 +169,7 @@ var azureDefaultImgConfig = &distro.ImageConfig{
 				},
 			},
 		},
-		distro.RHSMConfigWithSubscription: {
+		subscription.RHSMConfigWithSubscription: {
 			SubMan: &osbuild.RHSMStageOptionsSubMan{
 				Rhsmcertd: &osbuild.SubManConfigRHSMCERTDSection{
 					AutoRegistration: common.ToPtr(true),
@@ -271,7 +273,7 @@ func azureRhuiCommonPackageSet(t *imageType) rpmmd.PackageSet {
 }
 
 var azureRhuiBasePartitionTables = distro.BasePartitionTableMap{
-	distro.X86_64ArchName: disk.PartitionTable{
+	platform.ARCH_X86_64.String(): disk.PartitionTable{
 		UUID: "D209C89E-EA5E-4FBD-B161-B461CCE297E0",
 		Type: "gpt",
 		Size: 64 * common.GibiByte,

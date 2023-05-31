@@ -21,7 +21,7 @@ func osCustomizations(
 	t *imageType,
 	osPackageSet rpmmd.PackageSet,
 	options distro.ImageOptions,
-	containers []container.Spec,
+	containers []container.SourceSpec,
 	c *blueprint.Customizations,
 ) manifest.OSCustomizations {
 
@@ -139,7 +139,7 @@ func osCustomizations(
 	}
 
 	if t.arch.distro.isRHEL() && options.Facts != nil {
-		osc.FactAPIType = options.Facts.ApiType
+		osc.FactAPIType = &options.Facts.APIType
 	}
 
 	var err error
@@ -221,7 +221,7 @@ func liveImage(workload workload.Workload,
 	customizations *blueprint.Customizations,
 	options distro.ImageOptions,
 	packageSets map[string]rpmmd.PackageSet,
-	containers []container.Spec,
+	containers []container.SourceSpec,
 	rng *rand.Rand) (image.ImageKind, error) {
 
 	img := image.NewLiveImage()

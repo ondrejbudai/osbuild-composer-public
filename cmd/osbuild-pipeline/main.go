@@ -13,6 +13,7 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
 	"github.com/ondrejbudai/osbuild-composer-public/public/dnfjson"
+	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
 
 	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
@@ -64,15 +65,15 @@ func findDnfJsonBin() string {
 	panic(fmt.Sprintf("could not find 'dnf-json' in any of the known paths: %+v", locations))
 }
 
-func resolveContainers(bp blueprint.Blueprint, archName string) ([]container.Spec, error) {
-	if len(bp.Containers) == 0 {
+func resolveContainers(sourceSpecs []container.SourceSpec, archName string) ([]container.Spec, error) {
+	if len(sourceSpecs) == 0 {
 		return nil, nil
 	}
 
 	resolver := container.NewResolver(archName)
 
-	for _, c := range bp.Containers {
-		resolver.Add(c.Source, c.Name, c.TLSVerify)
+	for _, c := range sourceSpecs {
+		resolver.Add(c)
 	}
 
 	return resolver.Finish()
@@ -166,7 +167,7 @@ func main() {
 			GPGKeys:      keys,
 			CheckGPG:     &repo.CheckGPG,
 			CheckRepoGPG: common.ToPtr(false),
-			IgnoreSSL:    false,
+			IgnoreSSL:    common.ToPtr(false),
 			PackageSets:  repo.PackageSets,
 			RHSM:         repo.RHSM,
 		}
@@ -179,7 +180,7 @@ func main() {
 
 	options := distro.ImageOptions{
 		Size: imageType.Size(0),
-		OSTree: distro.OSTreeImageOptions{
+		OSTree: &ostree.ImageOptions{
 			ImageRef:      composeRequest.OSTree.Ref,
 			FetchChecksum: composeRequest.OSTree.Parent,
 			URL:           composeRequest.OSTree.URL,
@@ -199,15 +200,27 @@ func main() {
 	// let the cache grow to fit much more repository metadata than we usually allow
 	solver.SetMaxCacheSize(3 * 1024 * 1024 * 1024)
 
-	packageSets := imageType.PackageSets(composeRequest.Blueprint, options, repos)
-	depsolvedSets := make(map[string][]rpmmd.PackageSpec)
+	manifest, _, err := imageType.Manifest(&composeRequest.Blueprint, options, repos, seedArg)
+	if err != nil {
+		panic(err.Error())
+	}
 
-	for name, pkgSet := range packageSets {
+	depsolvedSets := make(map[string][]rpmmd.PackageSpec)
+	for name, pkgSet := range manifest.Content.PackageSets {
 		res, err := solver.Depsolve(pkgSet)
 		if err != nil {
 			panic("Could not depsolve: " + err.Error())
 		}
 		depsolvedSets[name] = res
+	}
+
+	containers := make(map[string][]container.Spec, len(manifest.Content.Containers))
+	for name, sourceSpecs := range manifest.Content.Containers {
+		containerSpecs, err := resolveContainers(sourceSpecs, arch.Name())
+		if err != nil {
+			panic("Could not resolve containers: " + err.Error())
+		}
+		containers[name] = containerSpecs
 	}
 
 	var bytes []byte
@@ -217,28 +230,17 @@ func main() {
 			panic(err)
 		}
 	} else {
-
-		containerSpecs, err := resolveContainers(composeRequest.Blueprint, arch.Name())
-		if err != nil {
-			panic("Could not resolve containers: " + err.Error())
-		}
-
 		if composeRequest.OSTree.Ref == "" {
 			// use default OSTreeRef for image type
 			composeRequest.OSTree.Ref = imageType.OSTreeRef()
 		}
 
-		manifest, _, err := imageType.Manifest(composeRequest.Blueprint.Customizations,
-			options,
-			repos,
-			depsolvedSets,
-			containerSpecs,
-			seedArg)
+		ms, err := manifest.Serialize(depsolvedSets, containers)
 		if err != nil {
 			panic(err.Error())
 		}
 
-		bytes, err = json.Marshal(manifest)
+		bytes, err = json.Marshal(ms)
 		if err != nil {
 			panic(err)
 		}

@@ -11,6 +11,7 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
+	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
 )
 
 func main() {
@@ -47,12 +48,16 @@ func main() {
 
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
-	pkgset := image.PackageSets(blueprint.Blueprint{}, distro.ImageOptions{
-		OSTree: distro.OSTreeImageOptions{
+	options := distro.ImageOptions{
+		OSTree: &ostree.ImageOptions{
 			URL:           "foo",
 			ImageRef:      "bar",
 			FetchChecksum: "baz",
 		},
-	}, nil)
-	_ = encoder.Encode(pkgset)
+	}
+	manifest, _, err := image.Manifest(&blueprint.Blueprint{}, options, nil, 0)
+	if err != nil {
+		panic(err)
+	}
+	_ = encoder.Encode(manifest.Content.PackageSets)
 }

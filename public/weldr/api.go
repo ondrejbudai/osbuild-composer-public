@@ -39,6 +39,7 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
 	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
 	"github.com/ondrejbudai/osbuild-composer-public/public/reporegistry"
+	"github.com/ondrejbudai/osbuild-composer-public/public/rhsm/facts"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/store"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
@@ -2240,29 +2241,14 @@ func (api *API) blueprintsTagHandler(writer http.ResponseWriter, request *http.R
 	statusResponseOK(writer)
 }
 
-// depsolveBlueprintForImageType handles depsolving the blueprint package list and
-// the packages required for the image type.
-// NOTE: The imageType *must* be from the same distribution as the blueprint.
-func (api *API) depsolveBlueprintForImageType(bp blueprint.Blueprint, options distro.ImageOptions, imageType distro.ImageType) (map[string][]rpmmd.PackageSpec, error) {
-	// Depsolve using the host distro if none has been specified
-	if bp.Distro == "" {
-		bp.Distro = api.hostDistroName
-	}
+// depsolve handles depsolving package sets required for serializing a manifest for a given distribution.
+func (api *API) depsolve(packageSets map[string][]rpmmd.PackageSet, distro distro.Distro) (map[string][]rpmmd.PackageSpec, error) {
 
-	if bp.Distro != imageType.Arch().Distro().Name() {
-		return nil, fmt.Errorf("Blueprint distro %s does not match imageType distro %s", bp.Distro, imageType.Arch().Distro().Name())
-	}
-
-	imageTypeRepos, err := api.allRepositoriesByImageType(imageType)
-	if err != nil {
-		return nil, err
-	}
-	platformID := imageType.Arch().Distro().ModulePlatformID()
-	releasever := imageType.Arch().Distro().Releasever()
-	distroName := imageType.Arch().Distro().Name()
+	platformID := distro.ModulePlatformID()
+	releasever := distro.Releasever()
+	distroName := distro.Name()
 	solver := api.solver.NewWithConfig(platformID, releasever, api.archName, distroName)
 
-	packageSets := imageType.PackageSets(bp, options, imageTypeRepos)
 	depsolvedSets := make(map[string][]rpmmd.PackageSpec, len(packageSets))
 
 	for name, pkgSet := range packageSets {
@@ -2279,65 +2265,71 @@ func (api *API) depsolveBlueprintForImageType(bp blueprint.Blueprint, options di
 	return depsolvedSets, nil
 }
 
-func (api *API) resolveContainersForImageType(bp blueprint.Blueprint, imageType distro.ImageType) ([]container.Spec, error) {
+func (api *API) resolveContainers(sourceSpecs map[string][]container.SourceSpec) (map[string][]container.Spec, error) {
 
-	specs := make([]container.Spec, len(bp.Containers))
+	specs := make(map[string][]container.Spec, len(sourceSpecs))
 
 	// shortcut
-	if len(bp.Containers) == 0 {
+	if len(sourceSpecs) == 0 {
 		return specs, nil
 	}
 
-	job := worker.ContainerResolveJob{
-		Arch:  api.archName,
-		Specs: make([]worker.ContainerSpec, len(bp.Containers)),
-	}
-
-	for i, c := range bp.Containers {
-		job.Specs[i] = worker.ContainerSpec{
-			Source:    c.Source,
-			Name:      c.Name,
-			TLSVerify: c.TLSVerify,
+	// Run one job for each value in the sourceSpecs in order.
+	// Currently this should still only be one job, but if containers are added
+	// to multiple pipelines at any point, this should work.
+	for name, sources := range sourceSpecs {
+		job := worker.ContainerResolveJob{
+			Arch:  api.archName,
+			Specs: make([]worker.ContainerSpec, len(sources)),
 		}
-	}
 
-	jobId, err := api.workers.EnqueueContainerResolveJob(&job, "")
+		for i, c := range sources {
+			job.Specs[i] = worker.ContainerSpec{
+				Source:    c.Source,
+				Name:      c.Name,
+				TLSVerify: c.TLSVerify,
+			}
+		}
 
-	if err != nil {
-		return specs, err
-	}
-
-	var result worker.ContainerResolveJobResult
-
-	for {
-		jobInfo, err := api.workers.ContainerResolveJobInfo(jobId, &result)
+		jobId, err := api.workers.EnqueueContainerResolveJob(&job, "")
 
 		if err != nil {
 			return specs, err
 		}
 
-		if result.JobError != nil {
-			return specs, errors.New(result.JobError.Reason)
-		} else if jobInfo.JobStatus.Canceled {
-			return specs, fmt.Errorf("Failed to resolve containers: job cancelled")
-		} else if !jobInfo.JobStatus.Finished.IsZero() {
-			break
+		var result worker.ContainerResolveJobResult
+
+		for {
+			jobInfo, err := api.workers.ContainerResolveJobInfo(jobId, &result)
+
+			if err != nil {
+				return specs, err
+			}
+
+			if result.JobError != nil {
+				return specs, errors.New(result.JobError.Reason)
+			} else if jobInfo.JobStatus.Canceled {
+				return specs, fmt.Errorf("Failed to resolve containers: job cancelled")
+			} else if !jobInfo.JobStatus.Finished.IsZero() {
+				break
+			}
+
+			time.Sleep(time.Millisecond * 250)
 		}
 
-		time.Sleep(time.Millisecond * 250)
-	}
+		if len(result.Specs) != len(sources) {
+			panic("programming error: input / output length don't match")
+		}
 
-	if len(result.Specs) != len(specs) {
-		panic("programming error: input / output length don't match")
-	}
-
-	for i, s := range result.Specs {
-		specs[i].Source = s.Source
-		specs[i].Digest = s.Digest
-		specs[i].LocalName = s.Name
-		specs[i].TLSVerify = s.TLSVerify
-		specs[i].ImageID = s.ImageID
-		specs[i].ListDigest = s.ListDigest
+		specs[name] = make([]container.Spec, len(sources))
+		for i, s := range result.Specs {
+			specs[name][i].Source = s.Source
+			specs[name][i].Digest = s.Digest
+			specs[name][i].LocalName = s.Name
+			specs[name][i].TLSVerify = s.TLSVerify
+			specs[name][i].ImageID = s.ImageID
+			specs[name][i].ListDigest = s.ListDigest
+		}
 	}
 
 	return specs, nil
@@ -2352,12 +2344,12 @@ func (api *API) composeHandler(writer http.ResponseWriter, request *http.Request
 
 	// https://weldr.io/lorax/pylorax.api.html#pylorax.api.v0.v0_compose_start
 	type ComposeRequest struct {
-		BlueprintName string               `json:"blueprint_name"`
-		ComposeType   string               `json:"compose_type"`
-		Size          uint64               `json:"size"`
-		OSTree        ostree.RequestParams `json:"ostree"`
-		Branch        string               `json:"branch"`
-		Upload        *uploadRequest       `json:"upload"`
+		BlueprintName string            `json:"blueprint_name"`
+		ComposeType   string            `json:"compose_type"`
+		Size          uint64            `json:"size"`
+		OSTree        ostree.SourceSpec `json:"ostree"`
+		Branch        string            `json:"branch"`
+		Upload        *uploadRequest    `json:"upload"`
 	}
 	type ComposeReply struct {
 		BuildID  uuid.UUID `json:"build_id"`
@@ -2451,7 +2443,7 @@ func (api *API) composeHandler(writer http.ResponseWriter, request *http.Request
 	}
 	testMode := q.Get("test")
 
-	ostreeOptions := distro.OSTreeImageOptions{
+	ostreeOptions := &ostree.ImageOptions{
 		URL: cr.OSTree.URL,
 	}
 	if testMode == "1" || testMode == "2" {
@@ -2463,7 +2455,7 @@ func (api *API) composeHandler(writer http.ResponseWriter, request *http.Request
 		if reqParams.Ref == "" {
 			reqParams.Ref = imageType.OSTreeRef()
 		}
-		ref, checksum, err := ostree.ResolveParams(reqParams)
+		ref, checksum, err := ostree.Resolve(reqParams)
 		if err != nil {
 			errors := responseError{
 				ID:  "OSTreeOptionsError",
@@ -2497,22 +2489,11 @@ func (api *API) composeHandler(writer http.ResponseWriter, request *http.Request
 		Size:   size,
 		OSTree: ostreeOptions,
 	}
-	options.Facts = &distro.FactsImageOptions{
-		ApiType: "weldr",
-	}
-
-	packageSets, err := api.depsolveBlueprintForImageType(*bp, options, imageType)
-	if err != nil {
-		errors := responseError{
-			ID:  "DepsolveError",
-			Msg: err.Error(),
-		}
-		statusResponseError(writer, http.StatusInternalServerError, errors)
-		return
+	options.Facts = &facts.ImageOptions{
+		APIType: facts.WELDR_APITYPE,
 	}
 
 	imageRepos, err := api.allRepositoriesByImageType(imageType)
-	// this should not happen if the api.depsolveBlueprintForImageType() call above worked
 	if err != nil {
 		errors := responseError{
 			ID:  "InternalError",
@@ -2522,7 +2503,27 @@ func (api *API) composeHandler(writer http.ResponseWriter, request *http.Request
 		return
 	}
 
-	containerSpecs, err := api.resolveContainersForImageType(*bp, imageType)
+	manifest, warnings, err := imageType.Manifest(bp, options, imageRepos, seed)
+	if err != nil {
+		errors := responseError{
+			ID:  "ManifestCreationFailed",
+			Msg: fmt.Sprintf("failed to initialize osbuild manifest: %v", err),
+		}
+		statusResponseError(writer, http.StatusBadRequest, errors)
+		return
+	}
+
+	packageSets, err := api.depsolve(manifest.Content.PackageSets, imageType.Arch().Distro())
+	if err != nil {
+		errors := responseError{
+			ID:  "DepsolveError",
+			Msg: err.Error(),
+		}
+		statusResponseError(writer, http.StatusInternalServerError, errors)
+		return
+	}
+
+	containerSpecs, err := api.resolveContainers(manifest.Content.Containers)
 	if err != nil {
 		errors := responseError{
 			ID:  "ContainerResolveError",
@@ -2532,16 +2533,11 @@ func (api *API) composeHandler(writer http.ResponseWriter, request *http.Request
 		return
 	}
 
-	manifest, warnings, err := imageType.Manifest(bp.Customizations,
-		options,
-		imageRepos,
-		packageSets,
-		containerSpecs,
-		seed)
+	mf, err := manifest.Serialize(packageSets, containerSpecs)
 	if err != nil {
 		errors := responseError{
 			ID:  "ManifestCreationFailed",
-			Msg: fmt.Sprintf("failed to create osbuild manifest: %v", err),
+			Msg: fmt.Sprintf("failed to serialize osbuild manifest: %v", err),
 		}
 		statusResponseError(writer, http.StatusBadRequest, errors)
 		return
@@ -2558,15 +2554,15 @@ func (api *API) composeHandler(writer http.ResponseWriter, request *http.Request
 
 	if testMode == "1" {
 		// Create a failed compose
-		err = api.store.PushTestCompose(composeID, manifest, imageType, bp, size, targets, false, packages)
+		err = api.store.PushTestCompose(composeID, mf, imageType, bp, size, targets, false, packages)
 	} else if testMode == "2" {
 		// Create a successful compose
-		err = api.store.PushTestCompose(composeID, manifest, imageType, bp, size, targets, true, packages)
+		err = api.store.PushTestCompose(composeID, mf, imageType, bp, size, targets, true, packages)
 	} else {
 		var jobId uuid.UUID
 
 		jobId, err = api.workers.EnqueueOSBuild(api.archName, &worker.OSBuildJob{
-			Manifest: manifest,
+			Manifest: mf,
 			Targets:  targets,
 			PipelineNames: &worker.PipelineNames{
 				Build:   imageType.BuildPipelines(),
@@ -2574,7 +2570,7 @@ func (api *API) composeHandler(writer http.ResponseWriter, request *http.Request
 			},
 		}, "")
 		if err == nil {
-			err = api.store.PushCompose(composeID, manifest, imageType, bp, size, targets, jobId, packages)
+			err = api.store.PushCompose(composeID, mf, imageType, bp, size, targets, jobId, packages)
 		}
 	}
 

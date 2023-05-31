@@ -3,6 +3,7 @@ package manifest
 import (
 	"fmt"
 
+	"github.com/ondrejbudai/osbuild-composer-public/public/container"
 	"github.com/ondrejbudai/osbuild-composer-public/public/fdo"
 	"github.com/ondrejbudai/osbuild-composer-public/public/ignition"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
@@ -121,7 +122,7 @@ func (p *CoreOSInstaller) getPackageSpecs() []rpmmd.PackageSpec {
 	return p.packageSpecs
 }
 
-func (p *CoreOSInstaller) serializeStart(packages []rpmmd.PackageSpec) {
+func (p *CoreOSInstaller) serializeStart(packages []rpmmd.PackageSpec, _ []container.Spec) {
 	if len(p.packageSpecs) > 0 {
 		panic("double call to serializeStart()")
 	}

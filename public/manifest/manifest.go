@@ -1,10 +1,21 @@
+// Package manifest is used to define an osbuild manifest as a series of
+// pipelines with content. Typically, a Manifest is created using
+// manifest.New() and pipelines are defined and added to it using the pipeline
+// constructors (e.g., NewBuild()) with the manifest as the first argument. The
+// pipelines are added in the order they are called.
+//
+// The package implements a standard set of osbuild pipelines. A pipeline
+// conceptually represents a named filesystem tree, optionally generated
+// in a provided build root (represented by another pipeline). All inputs
+// to a pipeline must be explicitly specified, either in terms of another
+// pipeline, in terms of content addressable inputs or in terms of static
+// parameters to the inherited Pipeline structs.
 package manifest
 
 import (
 	"encoding/json"
 
 	"github.com/ondrejbudai/osbuild-composer-public/public/container"
-	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
 	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
@@ -20,11 +31,51 @@ const (
 )
 
 // An OSBuildManifest is an opaque JSON object, which is a valid input to osbuild
-// TODO: use this instead of distro.Manifest below
 type OSBuildManifest []byte
 
+func (m OSBuildManifest) MarshalJSON() ([]byte, error) {
+	return json.RawMessage(m).MarshalJSON()
+}
+
+func (m *OSBuildManifest) UnmarshalJSON(payload []byte) error {
+	var raw json.RawMessage
+	err := (&raw).UnmarshalJSON(payload)
+	if err != nil {
+		return err
+	}
+	*m = OSBuildManifest(raw)
+	return nil
+}
+
+// Manifest represents a manifest initialised with all the information required
+// to generate the pipelines but no content. The content included in the
+// Content field must be resolved before serializing.
 type Manifest struct {
+
+	// pipelines describe the build process for an image.
 	pipelines []Pipeline
+
+	// Content for the image that will be built by the Manifest. Each content
+	// type should be resolved before passing to the Serialize method.
+	Content Content
+}
+
+// Content for the image that will be built by the Manifest. Each content type
+// should be resolved before passing to the Serialize method.
+type Content struct {
+	// PackageSets are sequences of package sets, each set consisting of a list
+	// of package names to include and exclude and a set of repositories to use
+	// for resolving. Package set sequences (chains) should be depsolved in
+	// separately and the result combined. Package set sequences (chains) are
+	// keyed by the name of the Pipeline that will install them.
+	PackageSets map[string][]rpmmd.PackageSet
+
+	// Containers are source specifications for containers to embed in the image.
+	Containers map[string][]container.SourceSpec
+
+	// OSTreeCommits are source specifications for ostree commits to embed in
+	// the image or use as parent commits when building a new one.
+	OSTreeCommits map[string][]ostree.SourceSpec
 }
 
 func New() Manifest {
@@ -54,14 +105,40 @@ func (m Manifest) GetPackageSetChains() map[string][]rpmmd.PackageSet {
 	return chains
 }
 
-func (m Manifest) Serialize(packageSets map[string][]rpmmd.PackageSpec) (distro.Manifest, error) {
+func (m Manifest) GetContainerSourceSpecs() map[string][]container.SourceSpec {
+	// Containers should only appear in the payload pipeline.
+	// Let's iterate over all pipelines to avoid assuming pipeline names, but
+	// return all the specs as a single slice.
+	containerSpecs := make(map[string][]container.SourceSpec)
+	for _, pipeline := range m.pipelines {
+		if containers := pipeline.getContainerSources(); len(containers) > 0 {
+			containerSpecs[pipeline.Name()] = containers
+		}
+	}
+	return containerSpecs
+}
+
+func (m Manifest) GetOSTreeSourceSpecs() map[string][]ostree.SourceSpec {
+	// OSTree commits should only appear in one pipeline.
+	// Let's iterate over all pipelines to avoid assuming pipeline names, but
+	// return all the specs as a single slice if there are multiple.
+	ostreeSpecs := make(map[string][]ostree.SourceSpec)
+	for _, pipeline := range m.pipelines {
+		if commits := pipeline.getOSTreeCommitSources(); len(commits) > 0 {
+			ostreeSpecs[pipeline.Name()] = commits
+		}
+	}
+	return ostreeSpecs
+}
+
+func (m Manifest) Serialize(packageSets map[string][]rpmmd.PackageSpec, containerSpecs map[string][]container.Spec) (OSBuildManifest, error) {
 	pipelines := make([]osbuild.Pipeline, 0)
 	packages := make([]rpmmd.PackageSpec, 0)
 	commits := make([]ostree.CommitSpec, 0)
 	inline := make([]string, 0)
 	containers := make([]container.Spec, 0)
 	for _, pipeline := range m.pipelines {
-		pipeline.serializeStart(packageSets[pipeline.Name()])
+		pipeline.serializeStart(packageSets[pipeline.Name()], containerSpecs[pipeline.Name()])
 	}
 	for _, pipeline := range m.pipelines {
 		commits = append(commits, pipeline.getOSTreeCommits()...)

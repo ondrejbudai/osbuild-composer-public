@@ -18,7 +18,9 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
 	"github.com/ondrejbudai/osbuild-composer-public/public/dnfjson"
+	"github.com/ondrejbudai/osbuild-composer-public/public/manifest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
+	"github.com/ondrejbudai/osbuild-composer-public/public/rhsm/facts"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 )
 
@@ -39,18 +41,18 @@ func TestDistro_Manifest(t *testing.T, pipelinePath string, prefix string, regis
 			PackageSets []string `json:"package-sets,omitempty"`
 		}
 		type composeRequest struct {
-			Distro       string                `json:"distro"`
-			Arch         string                `json:"arch"`
-			ImageType    string                `json:"image-type"`
-			Repositories []repository          `json:"repositories"`
-			Blueprint    *blueprint.Blueprint  `json:"blueprint"`
-			OSTree       *ostree.RequestParams `json:"ostree"`
+			Distro       string               `json:"distro"`
+			Arch         string               `json:"arch"`
+			ImageType    string               `json:"image-type"`
+			Repositories []repository         `json:"repositories"`
+			Blueprint    *blueprint.Blueprint `json:"blueprint"`
+			OSTree       *ostree.SourceSpec   `json:"ostree"`
 		}
 		var tt struct {
 			ComposeRequest  *composeRequest                `json:"compose-request"`
 			PackageSpecSets map[string][]rpmmd.PackageSpec `json:"rpmmd"`
-			Manifest        distro.Manifest                `json:"manifest,omitempty"`
-			Containers      []container.Spec               `json:"containers,omitempty"`
+			Manifest        manifest.OSBuildManifest       `json:"manifest,omitempty"`
+			Containers      map[string][]container.Spec    `json:"containers,omitempty"`
 		}
 		file, err := os.ReadFile(fileName)
 		assert.NoErrorf(err, "Could not read test-case '%s': %v", fileName, err)
@@ -99,10 +101,10 @@ func TestDistro_Manifest(t *testing.T, pipelinePath string, prefix string, regis
 				return
 			}
 
-			var ostreeOptions distro.OSTreeImageOptions
+			var ostreeOptions *ostree.ImageOptions
 			if ref := imageType.OSTreeRef(); ref != "" {
 				if tt.ComposeRequest.OSTree != nil {
-					ostreeOptions = distro.OSTreeImageOptions{
+					ostreeOptions = &ostree.ImageOptions{
 						ImageRef:      tt.ComposeRequest.OSTree.Ref,
 						FetchChecksum: tt.ComposeRequest.OSTree.Parent,
 						URL:           tt.ComposeRequest.OSTree.URL,
@@ -110,15 +112,17 @@ func TestDistro_Manifest(t *testing.T, pipelinePath string, prefix string, regis
 					}
 				}
 			}
-			if ostreeOptions.ImageRef == "" { // set image type default if not specified in request
-				ostreeOptions.ImageRef = imageType.OSTreeRef()
+			if ostreeOptions == nil { // set image type default if not specified in request
+				ostreeOptions = &ostree.ImageOptions{
+					ImageRef: imageType.OSTreeRef(),
+				}
 			}
 
 			options := distro.ImageOptions{
 				Size:   imageType.Size(0),
 				OSTree: ostreeOptions,
-				Facts: &distro.FactsImageOptions{
-					ApiType: "test-manifest",
+				Facts: &facts.ImageOptions{
+					APIType: facts.TEST_APITYPE,
 				},
 			}
 
@@ -140,12 +144,12 @@ func TestDistro_Manifest(t *testing.T, pipelinePath string, prefix string, regis
 				imgPackageSpecSets = tt.PackageSpecSets
 			}
 
-			got, _, err := imageType.Manifest(tt.ComposeRequest.Blueprint.Customizations,
-				options,
-				repos,
-				imgPackageSpecSets,
-				tt.Containers,
-				RandomTestSeed)
+			manifest, _, err := imageType.Manifest(tt.ComposeRequest.Blueprint, options, repos, RandomTestSeed)
+			if err != nil {
+				t.Errorf("distro.Manifest() error = %v", err)
+				return
+			}
+			got, err := manifest.Serialize(imgPackageSpecSets, tt.Containers)
 
 			if (err == nil && tt.Manifest == nil) || (err != nil && tt.Manifest != nil) {
 				t.Errorf("distro.Manifest() error = %v", err)
@@ -166,7 +170,11 @@ func TestDistro_Manifest(t *testing.T, pipelinePath string, prefix string, regis
 }
 
 func getImageTypePkgSpecSets(imageType distro.ImageType, bp blueprint.Blueprint, options distro.ImageOptions, repos []rpmmd.RepoConfig, cacheDir, dnfJsonPath string) map[string][]rpmmd.PackageSpec {
-	imgPackageSets := imageType.PackageSets(bp, options, repos)
+	manifest, _, err := imageType.Manifest(&bp, options, repos, 0)
+	if err != nil {
+		panic("Could not generate manifest for package sets: " + err.Error())
+	}
+	imgPackageSets := manifest.Content.PackageSets
 
 	solver := dnfjson.NewSolver(imageType.Arch().Distro().ModulePlatformID(),
 		imageType.Arch().Distro().Releasever(),
@@ -194,7 +202,16 @@ var knownKernels = []string{"kernel", "kernel-debug", "kernel-rt"}
 
 // Returns the number of known kernels in the package list
 func kernelCount(imgType distro.ImageType, bp blueprint.Blueprint) int {
-	sets := imgType.PackageSets(bp, distro.ImageOptions{}, nil)
+	ostreeOptions := &ostree.ImageOptions{
+		URL:           "foo",
+		ImageRef:      "bar",
+		FetchChecksum: "baz",
+	}
+	manifest, _, err := imgType.Manifest(&bp, distro.ImageOptions{OSTree: ostreeOptions}, nil, 0)
+	if err != nil {
+		panic(err)
+	}
+	sets := manifest.Content.PackageSets
 
 	// Use a map to count unique kernels in a package set. If the same kernel
 	// name appears twice, it will only be installed once, so we only count it
@@ -306,56 +323,4 @@ func TestDistro_KernelOption(t *testing.T, d distro.Distro) {
 			}
 		}
 	}
-}
-
-// GetTestingPackageSpecSets returns PackageSpecSets useful for unit testing.
-//
-// A dummy PackageSpec for the provided packageName is added
-// to all PackageSpecSets provided in pkgSetNames.
-//
-// E.g. `kernel` package is a hard requirement of some payload pipelines
-// and they panic if it is not found in the packageSpecSets passed to
-// Manifest().
-func GetTestingPackageSpecSets(packageName, arch string, pkgSetNames []string) map[string][]rpmmd.PackageSpec {
-	pkgTestingSpec := []rpmmd.PackageSpec{
-		{
-			Name:           packageName,
-			Epoch:          0,
-			Version:        "1.2.3",
-			Release:        "2.el123",
-			Arch:           arch,
-			RemoteLocation: "http://example.org",
-			Checksum:       "lorenipsum",
-			Secrets:        "lorenipsum",
-			CheckGPG:       false,
-		},
-	}
-	testPackageSpecSets := map[string][]rpmmd.PackageSpec{}
-	for _, pkgSetName := range pkgSetNames {
-		testPackageSpecSets[pkgSetName] = pkgTestingSpec
-	}
-	return testPackageSpecSets
-}
-
-// GetTestingImagePackageSpecSets returns PackageSpecSets for all package sets
-// defined by the provided ImageType, which is useful for unit testing.
-func GetTestingImagePackageSpecSets(packageName string, i distro.ImageType) map[string][]rpmmd.PackageSpec {
-	arch := i.Arch().Name()
-	imagePackageSets := make([]string, 0, len(i.PackageSets(blueprint.Blueprint{}, distro.ImageOptions{
-		OSTree: distro.OSTreeImageOptions{
-			URL:           "foo",
-			ImageRef:      "bar",
-			FetchChecksum: "baz",
-		},
-	}, nil)))
-	for pkgSetName := range i.PackageSets(blueprint.Blueprint{}, distro.ImageOptions{
-		OSTree: distro.OSTreeImageOptions{
-			URL:           "foo",
-			ImageRef:      "bar",
-			FetchChecksum: "baz",
-		},
-	}, nil) {
-		imagePackageSets = append(imagePackageSets, pkgSetName)
-	}
-	return GetTestingPackageSpecSets(packageName, arch, imagePackageSets)
 }

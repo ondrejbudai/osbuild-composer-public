@@ -1,12 +1,9 @@
-package rhel9
+package fedora
 
 import (
 	"fmt"
-	"log"
 	"math/rand"
 	"strings"
-
-	"golang.org/x/exp/slices"
 
 	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
@@ -21,25 +18,7 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/workload"
-)
-
-const (
-	// package set names
-
-	// build package set name
-	buildPkgsKey = "build"
-
-	// main/common os image package set name
-	osPkgsKey = "os"
-
-	// container package set name
-	containerPkgsKey = "container"
-
-	// installer package set name
-	installerPkgsKey = "installer"
-
-	// blueprint package set name
-	blueprintPkgsKey = "blueprint"
+	"golang.org/x/exp/slices"
 )
 
 type imageFunc func(workload workload.Workload, t *imageType, customizations *blueprint.Customizations, options distro.ImageOptions, packageSets map[string]rpmmd.PackageSet, containers []container.SourceSpec, rng *rand.Rand) (image.ImageKind, error)
@@ -54,7 +33,6 @@ type imageType struct {
 	name               string
 	nameAliases        []string
 	filename           string
-	compression        string // TODO: remove from image definition and make it a transport option
 	mimeType           string
 	packageSets        map[string]packageSetFunc
 	defaultImageConfig *distro.ImageConfig
@@ -67,12 +45,13 @@ type imageType struct {
 
 	// bootISO: installable ISO
 	bootISO bool
-	// rpmOstree: edge/ostree
+	// rpmOstree: iot/ostree
 	rpmOstree bool
 	// bootable image
 	bootable bool
 	// List of valid arches for the image type
-	basePartitionTables distro.BasePartitionTableMap
+	basePartitionTables    distro.BasePartitionTableMap
+	requiredPartitionSizes map[string]uint64
 }
 
 func (t *imageType) Name() string {
@@ -94,7 +73,7 @@ func (t *imageType) MIMEType() string {
 func (t *imageType) OSTreeRef() string {
 	d := t.arch.distro
 	if t.rpmOstree {
-		return fmt.Sprintf(d.ostreeRefTmpl, t.Arch().Name())
+		return fmt.Sprintf(d.ostreeRefTmpl, t.arch.Name())
 	}
 	return ""
 }
@@ -123,7 +102,7 @@ func (t *imageType) PayloadPackageSets() []string {
 }
 
 func (t *imageType) PackageSetsChains() map[string][]string {
-	return nil
+	return make(map[string][]string)
 }
 
 func (t *imageType) Exports() []string {
@@ -149,19 +128,16 @@ func (t *imageType) getPartitionTable(
 	options distro.ImageOptions,
 	rng *rand.Rand,
 ) (*disk.PartitionTable, error) {
-	archName := t.arch.Name()
-
-	basePartitionTable, exists := t.basePartitionTables[archName]
-
+	basePartitionTable, exists := t.basePartitionTables[t.arch.Name()]
 	if !exists {
-		return nil, fmt.Errorf("no partition table defined for architecture %q for image type %q", archName, t.Name())
+		return nil, fmt.Errorf("unknown arch: " + t.arch.Name())
 	}
 
 	imageSize := t.Size(options.Size)
 
 	lvmify := !t.rpmOstree
 
-	return disk.NewPartitionTable(&basePartitionTable, mountpoints, imageSize, lvmify, nil, rng)
+	return disk.NewPartitionTable(&basePartitionTable, mountpoints, imageSize, lvmify, t.requiredPartitionSizes, rng)
 }
 
 func (t *imageType) getDefaultImageConfig() *distro.ImageConfig {
@@ -175,8 +151,7 @@ func (t *imageType) getDefaultImageConfig() *distro.ImageConfig {
 }
 
 func (t *imageType) PartitionType() string {
-	archName := t.arch.Name()
-	basePartitionTable, exists := t.basePartitionTables[archName]
+	basePartitionTable, exists := t.basePartitionTables[t.arch.Name()]
 	if !exists {
 		return ""
 	}
@@ -266,22 +241,9 @@ func (t *imageType) checkOptions(bp *blueprint.Blueprint, options distro.ImageOp
 
 	customizations := bp.Customizations
 
-	// holds warnings (e.g. deprecation notices)
-	var warnings []string
-	if t.workload != nil {
-		// For now, if an image type defines its own workload, don't allow any
-		// user customizations.
-		// Soon we will have more workflows and each will define its allowed
-		// set of customizations.  The current set of customizations defined in
-		// the blueprint spec corresponds to the Custom workflow.
-		if customizations != nil {
-			return warnings, fmt.Errorf("image type %q does not support customizations", t.name)
-		}
-	}
-
 	// we do not support embedding containers on ostree-derived images, only on commits themselves
-	if len(bp.Containers) > 0 && t.rpmOstree && (t.name != "edge-commit" && t.name != "edge-container") {
-		return warnings, fmt.Errorf("embedding containers is not supported for %s on %s", t.name, t.arch.distro.name)
+	if len(bp.Containers) > 0 && t.rpmOstree && (t.name != "iot-commit" && t.name != "iot-container") {
+		return nil, fmt.Errorf("embedding containers is not supported for %s on %s", t.name, t.arch.distro.name)
 	}
 
 	ostreeChecksum := ""
@@ -292,113 +254,57 @@ func (t *imageType) checkOptions(bp *blueprint.Blueprint, options distro.ImageOp
 	if t.bootISO && t.rpmOstree {
 		// check the checksum instead of the URL, because the URL should have been used to resolve the checksum and we need both
 		if ostreeChecksum == "" {
-			return warnings, fmt.Errorf("boot ISO image type %q requires specifying a URL from which to retrieve the OSTree commit", t.name)
+			return nil, fmt.Errorf("boot ISO image type %q requires specifying a URL from which to retrieve the OSTree commit", t.name)
 		}
+	}
 
-		if t.name == "edge-simplified-installer" {
-			allowed := []string{"InstallationDevice", "FDO", "Ignition", "Kernel", "User", "Group"}
-			if err := customizations.CheckAllowed(allowed...); err != nil {
-				return warnings, fmt.Errorf("unsupported blueprint customizations found for boot ISO image type %q: (allowed: %s)", t.name, strings.Join(allowed, ", "))
-			}
-			if customizations.GetInstallationDevice() == "" {
-				return warnings, fmt.Errorf("boot ISO image type %q requires specifying an installation device to install to", t.name)
-			}
+	if t.name == "iot-raw-image" {
+		allowed := []string{"User", "Group", "Directories", "Files", "Services"}
+		if err := customizations.CheckAllowed(allowed...); err != nil {
+			return nil, fmt.Errorf("unsupported blueprint customizations found for image type %q: (allowed: %s)", t.name, strings.Join(allowed, ", "))
+		}
+		// TODO: consider additional checks, such as those in "edge-simplified-installer" in RHEL distros
+	}
 
-			// FDO is optional, but when specified has some restrictions
-			if customizations.GetFDO() != nil {
-				if customizations.GetFDO().ManufacturingServerURL == "" {
-					return warnings, fmt.Errorf("boot ISO image type %q requires specifying FDO.ManufacturingServerURL configuration to install to when using FDO", t.name)
-				}
-				var diunSet int
-				if customizations.GetFDO().DiunPubKeyHash != "" {
-					diunSet++
-				}
-				if customizations.GetFDO().DiunPubKeyInsecure != "" {
-					diunSet++
-				}
-				if customizations.GetFDO().DiunPubKeyRootCerts != "" {
-					diunSet++
-				}
-				if diunSet != 1 {
-					return warnings, fmt.Errorf("boot ISO image type %q requires specifying one of [FDO.DiunPubKeyHash,FDO.DiunPubKeyInsecure,FDO.DiunPubKeyRootCerts] configuration to install to when using FDO", t.name)
-				}
-			}
-
-			// ignition is optional, we might be using FDO
-			if customizations.GetIgnition() != nil {
-				if customizations.GetIgnition().Embedded != nil && customizations.GetIgnition().FirstBoot != nil {
-					return warnings, fmt.Errorf("both ignition embedded and firstboot configurations found")
-				}
-				if customizations.GetIgnition().FirstBoot != nil && customizations.GetIgnition().FirstBoot.ProvisioningURL == "" {
-					return warnings, fmt.Errorf("ignition.firstboot requires a provisioning url")
-				}
-			}
-		} else if t.name == "edge-installer" {
+	// BootISO's have limited support for customizations.
+	// TODO: Support kernel name selection for image-installer
+	if t.bootISO {
+		if t.name == "iot-installer" || t.name == "image-installer" {
 			allowed := []string{"User", "Group"}
 			if err := customizations.CheckAllowed(allowed...); err != nil {
-				return warnings, fmt.Errorf("unsupported blueprint customizations found for boot ISO image type %q: (allowed: %s)", t.name, strings.Join(allowed, ", "))
+				return nil, fmt.Errorf("unsupported blueprint customizations found for boot ISO image type %q: (allowed: %s)", t.name, strings.Join(allowed, ", "))
 			}
 		}
 	}
 
-	if t.name == "edge-raw-image" {
-		// check the checksum instead of the URL, because the URL should have been used to resolve the checksum and we need both
-		if ostreeChecksum == "" {
-			return warnings, fmt.Errorf("edge raw images require specifying a URL from which to retrieve the OSTree commit")
-		}
-
-		allowed := []string{"Ignition", "Kernel", "User", "Group"}
-		if err := customizations.CheckAllowed(allowed...); err != nil {
-			return warnings, fmt.Errorf("unsupported blueprint customizations found for image type %q: (allowed: %s)", t.name, strings.Join(allowed, ", "))
-		}
-		// TODO: consider additional checks, such as those in "edge-simplified-installer"
-	}
-
-	// warn that user & group customizations on edge-commit, edge-container are deprecated
-	// TODO(edge): directly error if these options are provided when rhel-9.5's time arrives
-	if t.name == "edge-commit" || t.name == "edge-container" {
-		if customizations.GetUsers() != nil {
-			w := fmt.Sprintf("Please note that user customizations on %q image type are deprecated and will be removed in the near future\n", t.name)
-			log.Print(w)
-			warnings = append(warnings, w)
-		}
-		if customizations.GetGroups() != nil {
-			w := fmt.Sprintf("Please note that group customizations on %q image type are deprecated and will be removed in the near future\n", t.name)
-			log.Print(w)
-			warnings = append(warnings, w)
-		}
-	}
-
-	if kernelOpts := customizations.GetKernel(); kernelOpts.Append != "" && t.rpmOstree && t.name != "edge-raw-image" && t.name != "edge-simplified-installer" {
-		return warnings, fmt.Errorf("kernel boot parameter customizations are not supported for ostree types")
+	if kernelOpts := customizations.GetKernel(); kernelOpts.Append != "" && t.rpmOstree {
+		return nil, fmt.Errorf("kernel boot parameter customizations are not supported for ostree types")
 	}
 
 	mountpoints := customizations.GetFilesystems()
 
 	if mountpoints != nil && t.rpmOstree {
-		return warnings, fmt.Errorf("Custom mountpoints are not supported for ostree types")
+		return nil, fmt.Errorf("Custom mountpoints are not supported for ostree types")
 	}
 
 	err := blueprint.CheckMountpointsPolicy(mountpoints, pathpolicy.MountpointPolicies)
 	if err != nil {
-		return warnings, err
+		return nil, err
 	}
 
 	if osc := customizations.GetOpenSCAP(); osc != nil {
-		if t.arch.distro.osVersion == "9.0" {
-			return warnings, fmt.Errorf(fmt.Sprintf("OpenSCAP unsupported os version: %s", t.arch.distro.osVersion))
-		}
-		if !oscap.IsProfileAllowed(osc.ProfileID, oscapProfileAllowList) {
-			return warnings, fmt.Errorf(fmt.Sprintf("OpenSCAP unsupported profile: %s", osc.ProfileID))
+		supported := oscap.IsProfileAllowed(osc.ProfileID, oscapProfileAllowList)
+		if !supported {
+			return nil, fmt.Errorf(fmt.Sprintf("OpenSCAP unsupported profile: %s", osc.ProfileID))
 		}
 		if t.rpmOstree {
-			return warnings, fmt.Errorf("OpenSCAP customizations are not supported for ostree types")
+			return nil, fmt.Errorf("OpenSCAP customizations are not supported for ostree types")
 		}
 		if osc.DataStream == "" {
-			return warnings, fmt.Errorf("OpenSCAP datastream cannot be empty")
+			return nil, fmt.Errorf("OpenSCAP datastream cannot be empty")
 		}
 		if osc.ProfileID == "" {
-			return warnings, fmt.Errorf("OpenSCAP profile cannot be empty")
+			return nil, fmt.Errorf("OpenSCAP profile cannot be empty")
 		}
 	}
 
@@ -408,23 +314,24 @@ func (t *imageType) checkOptions(bp *blueprint.Blueprint, options distro.ImageOp
 
 	err = blueprint.ValidateDirFileCustomizations(dc, fc)
 	if err != nil {
-		return warnings, err
+		return nil, err
 	}
+
 	err = blueprint.CheckDirectoryCustomizationsPolicy(dc, pathpolicy.CustomDirectoriesPolicies)
 	if err != nil {
-		return warnings, err
+		return nil, err
 	}
 
 	err = blueprint.CheckFileCustomizationsPolicy(fc, pathpolicy.CustomFilesPolicies)
 	if err != nil {
-		return warnings, err
+		return nil, err
 	}
 
 	// check if repository customizations are valid
 	_, err = customizations.GetRepositories()
 	if err != nil {
-		return warnings, err
+		return nil, err
 	}
 
-	return warnings, nil
+	return nil, nil
 }

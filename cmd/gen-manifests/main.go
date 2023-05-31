@@ -21,6 +21,9 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
 	"github.com/ondrejbudai/osbuild-composer-public/public/dnfjson"
+	"github.com/ondrejbudai/osbuild-composer-public/public/manifest"
+	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
+	"github.com/ondrejbudai/osbuild-composer-public/public/rhsm/facts"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 )
 
@@ -120,17 +123,22 @@ func makeManifestJob(name string, imgType distro.ImageType, cr composeRequest, d
 
 	options := distro.ImageOptions{Size: 0}
 	if cr.OSTree != nil {
-		options.OSTree = distro.OSTreeImageOptions{
+		options.OSTree = &ostree.ImageOptions{
 			URL:           cr.OSTree.URL,
 			ImageRef:      cr.OSTree.Ref,
 			FetchChecksum: cr.OSTree.Parent,
 			RHSM:          cr.OSTree.RHSM,
 		}
+	} else {
+		// use default OSTreeRef for image type
+		options.OSTree = &ostree.ImageOptions{
+			ImageRef: imgType.OSTreeRef(),
+		}
 	}
 
 	// add RHSM fact to detect changes
-	options.Facts = &distro.FactsImageOptions{
-		ApiType: "test-manifest",
+	options.Facts = &facts.ImageOptions{
+		APIType: facts.TEST_APITYPE,
 	}
 
 	job := func(msgq chan string) (err error) {
@@ -148,17 +156,13 @@ func makeManifestJob(name string, imgType distro.ImageType, cr composeRequest, d
 			bp = blueprint.Blueprint(*cr.Blueprint)
 		}
 
-		containerSpecs, err := resolveContainers(bp.Containers, archName)
+		manifest, _, err := imgType.Manifest(&bp, options, repos, seedArg)
 		if err != nil {
-			return fmt.Errorf("[%s] container resolution failed: %s", filename, err.Error())
+			err = fmt.Errorf("[%s] failed: %s", filename, err)
+			return
 		}
 
-		if options.OSTree.ImageRef == "" {
-			// use default OSTreeRef for image type
-			options.OSTree.ImageRef = imgType.OSTreeRef()
-		}
-
-		packageSpecs, err := depsolve(cacheDir, imgType, bp, options, repos, distribution, archName)
+		packageSpecs, err := depsolve(cacheDir, manifest.Content.PackageSets, distribution, archName)
 		if err != nil {
 			err = fmt.Errorf("[%s] depsolve failed: %s", filename, err.Error())
 			return
@@ -167,11 +171,21 @@ func makeManifestJob(name string, imgType distro.ImageType, cr composeRequest, d
 			err = fmt.Errorf("[%s] nil package specs", filename)
 			return
 		}
-		manifest, _, err := imgType.Manifest(cr.Blueprint.Customizations, options, repos, packageSpecs, containerSpecs, seedArg)
-		if err != nil {
-			err = fmt.Errorf("[%s] failed: %s", filename, err)
-			return
+
+		if cr.Blueprint != nil {
+			bp = blueprint.Blueprint(*cr.Blueprint)
 		}
+
+		containerSpecs, err := resolvePipelineContainers(manifest.Content.Containers, archName)
+		if err != nil {
+			return fmt.Errorf("[%s] container resolution failed: %s", filename, err.Error())
+		}
+
+		mf, err := manifest.Serialize(packageSpecs, containerSpecs)
+		if err != nil {
+			return fmt.Errorf("[%s] manifest serialization failed: %s", filename, err.Error())
+		}
+
 		request := composeRequest{
 			Distro:       distribution.Name(),
 			Arch:         archName,
@@ -181,7 +195,7 @@ func makeManifestJob(name string, imgType distro.ImageType, cr composeRequest, d
 			Blueprint:    cr.Blueprint,
 			OSTree:       cr.OSTree,
 		}
-		err = save(manifest, packageSpecs, containerSpecs, request, path, filename)
+		err = save(mf, packageSpecs, containerSpecs, request, path, filename)
 		return
 	}
 	return job
@@ -209,7 +223,7 @@ func convertRepo(r repository) rpmmd.RepoConfig {
 		GPGKeys:        keys,
 		CheckGPG:       &r.CheckGPG,
 		CheckRepoGPG:   &r.CheckRepoGPG,
-		IgnoreSSL:      r.IgnoreSSL,
+		IgnoreSSL:      &r.IgnoreSSL,
 		MetadataExpire: r.MetadataExpire,
 		RHSM:           r.RHSM,
 		ImageTypeTags:  r.ImageTypeTags,
@@ -243,20 +257,31 @@ func readRepos() DistroArchRepoMap {
 	return darm
 }
 
-func resolveContainers(containers []blueprint.Container, archName string) ([]container.Spec, error) {
+func resolveContainers(containers []container.SourceSpec, archName string) ([]container.Spec, error) {
 	resolver := container.NewResolver(archName)
 
 	for _, c := range containers {
-		resolver.Add(c.Source, c.Name, c.TLSVerify)
+		resolver.Add(c)
 	}
 
 	return resolver.Finish()
 }
 
-func depsolve(cacheDir string, imageType distro.ImageType, bp blueprint.Blueprint, options distro.ImageOptions, repos []rpmmd.RepoConfig, d distro.Distro, arch string) (map[string][]rpmmd.PackageSpec, error) {
+func resolvePipelineContainers(containerSources map[string][]container.SourceSpec, archName string) (map[string][]container.Spec, error) {
+	containerSpecs := make(map[string][]container.Spec, len(containerSources))
+	for plName, sourceSpecs := range containerSources {
+		specs, err := resolveContainers(sourceSpecs, archName)
+		if err != nil {
+			return nil, err
+		}
+		containerSpecs[plName] = specs
+	}
+	return containerSpecs, nil
+}
+
+func depsolve(cacheDir string, packageSets map[string][]rpmmd.PackageSet, d distro.Distro, arch string) (map[string][]rpmmd.PackageSpec, error) {
 	solver := dnfjson.NewSolver(d.ModulePlatformID(), d.Releasever(), arch, d.Name(), cacheDir)
 	solver.SetDNFJSONPath("./dnf-json")
-	packageSets := imageType.PackageSets(bp, options, repos)
 	depsolvedSets := make(map[string][]rpmmd.PackageSpec)
 	for name, pkgSet := range packageSets {
 		res, err := solver.Depsolve(pkgSet)
@@ -268,15 +293,15 @@ func depsolve(cacheDir string, imageType distro.ImageType, bp blueprint.Blueprin
 	return depsolvedSets, nil
 }
 
-func save(manifest distro.Manifest, pkgs map[string][]rpmmd.PackageSpec, containers []container.Spec, cr composeRequest, path, filename string) error {
+func save(ms manifest.OSBuildManifest, pkgs map[string][]rpmmd.PackageSpec, containers map[string][]container.Spec, cr composeRequest, path, filename string) error {
 	data := struct {
 		ComposeRequest composeRequest                 `json:"compose-request"`
-		Manifest       distro.Manifest                `json:"manifest"`
+		Manifest       manifest.OSBuildManifest       `json:"manifest"`
 		RPMMD          map[string][]rpmmd.PackageSpec `json:"rpmmd"`
-		Containers     []container.Spec               `json:"containers,omitempty"`
+		Containers     map[string][]container.Spec    `json:"containers,omitempty"`
 		NoImageInfo    bool                           `json:"no-image-info"`
 	}{
-		cr, manifest, pkgs, containers, true,
+		cr, ms, pkgs, containers, true,
 	}
 	b, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {

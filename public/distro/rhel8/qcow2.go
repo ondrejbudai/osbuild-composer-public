@@ -5,6 +5,7 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
+	"github.com/ondrejbudai/osbuild-composer-public/public/subscription"
 )
 
 func qcow2ImgType(rd distribution) imageType {
@@ -29,8 +30,8 @@ func qcow2ImgType(rd distribution) imageType {
 	}
 
 	if rd.isRHEL() {
-		it.defaultImageConfig.RHSMConfig = map[distro.RHSMSubscriptionStatus]*osbuild.RHSMStageOptions{
-			distro.RHSMConfigNoSubscription: {
+		it.defaultImageConfig.RHSMConfig = map[subscription.RHSMStatus]*osbuild.RHSMStageOptions{
+			subscription.RHSMConfigNoSubscription: {
 				DnfPlugins: &osbuild.RHSMStageOptionsDnfPlugins{
 					ProductID: &osbuild.RHSMStageOptionsDnfPlugin{
 						Enabled: false,

@@ -254,7 +254,9 @@ func TestImageType_BuildPackages(t *testing.T) {
 					if assert.NoErrorf(t, err, "d.GetArch(%v) returned err = %v; expected nil", archLabel, err) {
 						continue
 					}
-					buildPkgs := itStruct.PackageSets(blueprint.Blueprint{}, distro.ImageOptions{}, nil)["build"]
+					manifest, _, err := itStruct.Manifest(&blueprint.Blueprint{}, distro.ImageOptions{}, nil, 0)
+					assert.NoError(t, err)
+					buildPkgs := manifest.Content.PackageSets["build"]
 					assert.NotNil(t, buildPkgs)
 					assert.Len(t, buildPkgs, 1)
 					assert.ElementsMatch(t, buildPackages[archLabel], buildPkgs[0].Include)
@@ -425,8 +427,7 @@ func TestDistro_ManifestError(t *testing.T) {
 			imgOpts := distro.ImageOptions{
 				Size: imgType.Size(0),
 			}
-			testPackageSpecSets := distro_test_common.GetTestingImagePackageSpecSets("kernel", imgType)
-			_, _, err := imgType.Manifest(bp.Customizations, imgOpts, nil, testPackageSpecSets, nil, 0)
+			_, _, err := imgType.Manifest(&bp, imgOpts, nil, 0)
 			if imgTypeName == "iot-commit" || imgTypeName == "iot-container" {
 				assert.EqualError(t, err, "kernel boot parameter customizations are not supported for ostree types")
 			} else if imgTypeName == "iot-installer" {
@@ -576,7 +577,7 @@ func TestDistro_CustomFileSystemManifestError(t *testing.T) {
 		arch, _ := fedoraDistro.GetArch(archName)
 		for _, imgTypeName := range arch.ListImageTypes() {
 			imgType, _ := arch.GetImageType(imgTypeName)
-			_, _, err := imgType.Manifest(bp.Customizations, distro.ImageOptions{}, nil, nil, nil, 0)
+			_, _, err := imgType.Manifest(&bp, distro.ImageOptions{}, nil, 0)
 			if imgTypeName == "iot-commit" || imgTypeName == "iot-container" {
 				assert.EqualError(t, err, "Custom mountpoints are not supported for ostree types")
 			} else if imgTypeName == "iot-raw-image" {
@@ -606,8 +607,7 @@ func TestDistro_TestRootMountPoint(t *testing.T) {
 		arch, _ := fedoraDistro.GetArch(archName)
 		for _, imgTypeName := range arch.ListImageTypes() {
 			imgType, _ := arch.GetImageType(imgTypeName)
-			testPackageSpecSets := distro_test_common.GetTestingImagePackageSpecSets("kernel", imgType)
-			_, _, err := imgType.Manifest(bp.Customizations, distro.ImageOptions{}, nil, testPackageSpecSets, nil, 0)
+			_, _, err := imgType.Manifest(&bp, distro.ImageOptions{}, nil, 0)
 			if imgTypeName == "iot-commit" || imgTypeName == "iot-container" {
 				assert.EqualError(t, err, "Custom mountpoints are not supported for ostree types")
 			} else if imgTypeName == "iot-raw-image" {
@@ -641,8 +641,7 @@ func TestDistro_CustomFileSystemSubDirectories(t *testing.T) {
 		arch, _ := fedoraDistro.GetArch(archName)
 		for _, imgTypeName := range arch.ListImageTypes() {
 			imgType, _ := arch.GetImageType(imgTypeName)
-			testPackageSpecSets := distro_test_common.GetTestingImagePackageSpecSets("kernel", imgType)
-			_, _, err := imgType.Manifest(bp.Customizations, distro.ImageOptions{}, nil, testPackageSpecSets, nil, 0)
+			_, _, err := imgType.Manifest(&bp, distro.ImageOptions{}, nil, 0)
 			if strings.HasPrefix(imgTypeName, "iot-") || strings.HasPrefix(imgTypeName, "image-") {
 				continue
 			} else {
@@ -680,8 +679,7 @@ func TestDistro_MountpointsWithArbitraryDepthAllowed(t *testing.T) {
 		arch, _ := fedoraDistro.GetArch(archName)
 		for _, imgTypeName := range arch.ListImageTypes() {
 			imgType, _ := arch.GetImageType(imgTypeName)
-			testPackageSpecSets := distro_test_common.GetTestingImagePackageSpecSets("kernel", imgType)
-			_, _, err := imgType.Manifest(bp.Customizations, distro.ImageOptions{}, nil, testPackageSpecSets, nil, 0)
+			_, _, err := imgType.Manifest(&bp, distro.ImageOptions{}, nil, 0)
 			if strings.HasPrefix(imgTypeName, "iot-") || strings.HasPrefix(imgTypeName, "image-") {
 				continue
 			} else {
@@ -715,7 +713,7 @@ func TestDistro_DirtyMountpointsNotAllowed(t *testing.T) {
 		arch, _ := fedoraDistro.GetArch(archName)
 		for _, imgTypeName := range arch.ListImageTypes() {
 			imgType, _ := arch.GetImageType(imgTypeName)
-			_, _, err := imgType.Manifest(bp.Customizations, distro.ImageOptions{}, nil, nil, nil, 0)
+			_, _, err := imgType.Manifest(&bp, distro.ImageOptions{}, nil, 0)
 			if strings.HasPrefix(imgTypeName, "iot-") || strings.HasPrefix(imgTypeName, "image-") {
 				continue
 			} else {
@@ -745,7 +743,7 @@ func TestDistro_CustomFileSystemPatternMatching(t *testing.T) {
 		arch, _ := fedoraDistro.GetArch(archName)
 		for _, imgTypeName := range arch.ListImageTypes() {
 			imgType, _ := arch.GetImageType(imgTypeName)
-			_, _, err := imgType.Manifest(bp.Customizations, distro.ImageOptions{}, nil, nil, nil, 0)
+			_, _, err := imgType.Manifest(&bp, distro.ImageOptions{}, nil, 0)
 			if imgTypeName == "iot-commit" || imgTypeName == "iot-container" {
 				assert.EqualError(t, err, "Custom mountpoints are not supported for ostree types")
 			} else if imgTypeName == "iot-raw-image" {
@@ -775,8 +773,7 @@ func TestDistro_CustomUsrPartitionNotLargeEnough(t *testing.T) {
 		arch, _ := fedoraDistro.GetArch(archName)
 		for _, imgTypeName := range arch.ListImageTypes() {
 			imgType, _ := arch.GetImageType(imgTypeName)
-			testPackageSpecSets := distro_test_common.GetTestingImagePackageSpecSets("kernel", imgType)
-			_, _, err := imgType.Manifest(bp.Customizations, distro.ImageOptions{}, nil, testPackageSpecSets, nil, 0)
+			_, _, err := imgType.Manifest(&bp, distro.ImageOptions{}, nil, 0)
 			if imgTypeName == "iot-commit" || imgTypeName == "iot-container" {
 				assert.EqualError(t, err, "Custom mountpoints are not supported for ostree types")
 			} else if imgTypeName == "iot-raw-image" {
@@ -788,25 +785,4 @@ func TestDistro_CustomUsrPartitionNotLargeEnough(t *testing.T) {
 			}
 		}
 	}
-}
-
-func TestIotInstallerWithoutOStreeRefs(t *testing.T) {
-	// Regression test for https://github.com/ondrejbudai/osbuild-composer-public/issues/3125
-
-	// TODO: Remove when the ugly workaround is gone
-	d := fedora.NewF38()
-	arch, err := d.GetArch("x86_64")
-	require.NoError(t, err)
-
-	imgType, err := arch.GetImageType("iot-installer")
-	require.NoError(t, err)
-
-	bp := blueprint.Blueprint{
-		Name: "fish",
-	}
-	err = bp.Initialize()
-	require.NoError(t, err)
-
-	sets := imgType.PackageSets(bp, distro.ImageOptions{}, nil)
-	require.NotZero(t, len(sets))
 }

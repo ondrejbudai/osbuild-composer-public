@@ -5,6 +5,7 @@ import (
 
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
+	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 )
 
@@ -217,10 +218,10 @@ func edgeCommitPackageSet(t *imageType) rpmmd.PackageSet {
 	}
 
 	switch t.arch.Name() {
-	case distro.X86_64ArchName:
+	case platform.ARCH_X86_64.String():
 		ps = ps.Append(x8664EdgeCommitPackageSet(t))
 
-	case distro.Aarch64ArchName:
+	case platform.ARCH_AARCH64.String():
 		ps = ps.Append(aarch64EdgeCommitPackageSet(t))
 	}
 
@@ -338,9 +339,9 @@ func edgeSimplifiedInstallerPackageSet(t *imageType) rpmmd.PackageSet {
 
 	switch t.arch.Name() {
 
-	case distro.X86_64ArchName:
+	case platform.ARCH_X86_64.String():
 		ps = ps.Append(x8664EdgeCommitPackageSet(t))
-	case distro.Aarch64ArchName:
+	case platform.ARCH_AARCH64.String():
 		ps = ps.Append(aarch64EdgeCommitPackageSet(t))
 
 	default:

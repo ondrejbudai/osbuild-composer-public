@@ -14,28 +14,34 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro/fedora"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
 	"github.com/ondrejbudai/osbuild-composer-public/public/dnfjson"
+	"github.com/ondrejbudai/osbuild-composer-public/public/manifest"
+	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/store"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 )
 
-func getManifest(bp blueprint.Blueprint, t distro.ImageType, a distro.Arch, d distro.Distro, cacheDir string, repos []rpmmd.RepoConfig) (distro.Manifest, []rpmmd.PackageSpec) {
-	packageSets := t.PackageSets(bp, distro.ImageOptions{}, repos)
+func getManifest(bp blueprint.Blueprint, t distro.ImageType, a distro.Arch, d distro.Distro, cacheDir string, repos []rpmmd.RepoConfig) (manifest.OSBuildManifest, []rpmmd.PackageSpec) {
+	manifest, _, err := t.Manifest(&bp, distro.ImageOptions{}, repos, 0)
+	if err != nil {
+		panic(err)
+	}
 	pkgSpecSets := make(map[string][]rpmmd.PackageSpec)
 	solver := dnfjson.NewSolver(d.ModulePlatformID(), d.Releasever(), a.Name(), d.Name(), cacheDir)
-	for name, packages := range packageSets {
+	for name, packages := range manifest.Content.PackageSets {
 		res, err := solver.Depsolve(packages)
 		if err != nil {
 			panic(err)
 		}
 		pkgSpecSets[name] = res
 	}
-	manifest, _, err := t.Manifest(bp.Customizations, distro.ImageOptions{}, repos, pkgSpecSets, nil, 0)
+
+	mf, err := manifest.Serialize(pkgSpecSets, nil)
 	if err != nil {
 		panic(err)
 	}
 
-	return manifest, pkgSpecSets["packages"]
+	return mf, pkgSpecSets["packages"]
 }
 
 func main() {
@@ -120,7 +126,7 @@ func main() {
 	awsTarget.OsbuildArtifact.ExportFilename = "image.ami"
 
 	d := fedora.NewF37()
-	a, err := d.GetArch(distro.X86_64ArchName)
+	a, err := d.GetArch(platform.ARCH_X86_64.String())
 	if err != nil {
 		panic(err)
 	}
@@ -136,7 +142,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	repos := allRepos[distro.X86_64ArchName]
+	repos := allRepos[platform.ARCH_X86_64.String()]
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		panic("os.UserHomeDir(): " + err.Error())
