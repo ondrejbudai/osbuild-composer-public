@@ -182,7 +182,7 @@ var (
 		},
 		kernelOptions:       defaultKernelOptions,
 		bootable:            true,
-		defaultSize:         2 * common.GibiByte,
+		defaultSize:         5 * common.GibiByte,
 		image:               liveImage,
 		buildPipelines:      []string{"build"},
 		payloadPipelines:    []string{"os", "image", "qcow2"},
@@ -263,56 +263,6 @@ var (
 		payloadPipelines:    []string{"os", "image", "vmdk", "ovf", "archive"},
 		exports:             []string{"archive"},
 		basePartitionTables: defaultBasePartitionTables,
-	}
-
-	openstackImgType = imageType{
-		name:     "openstack",
-		filename: "disk.qcow2",
-		mimeType: "application/x-qemu-disk",
-		packageSets: map[string]packageSetFunc{
-			osPkgsKey: openstackCommonPackageSet,
-		},
-		defaultImageConfig: &distro.ImageConfig{
-			Locale: common.ToPtr("en_US.UTF-8"),
-			EnabledServices: []string{
-				"cloud-init.service",
-				"cloud-config.service",
-				"cloud-final.service",
-				"cloud-init-local.service",
-			},
-		},
-		kernelOptions:       defaultKernelOptions,
-		bootable:            true,
-		defaultSize:         2 * common.GibiByte,
-		image:               liveImage,
-		buildPipelines:      []string{"build"},
-		payloadPipelines:    []string{"os", "image", "qcow2"},
-		exports:             []string{"qcow2"},
-		basePartitionTables: defaultBasePartitionTables,
-	}
-
-	// default EC2 images config (common for all architectures)
-	defaultEc2ImageConfig = &distro.ImageConfig{
-		DefaultTarget: common.ToPtr("multi-user.target"),
-	}
-
-	amiImgType = imageType{
-		name:     "ami",
-		filename: "image.raw",
-		mimeType: "application/octet-stream",
-		packageSets: map[string]packageSetFunc{
-			osPkgsKey: ec2CommonPackageSet,
-		},
-		defaultImageConfig:  defaultEc2ImageConfig,
-		kernelOptions:       defaultKernelOptions,
-		bootable:            true,
-		defaultSize:         6 * common.GibiByte,
-		image:               liveImage,
-		buildPipelines:      []string{"build"},
-		payloadPipelines:    []string{"os", "image"},
-		exports:             []string{"image"},
-		basePartitionTables: defaultBasePartitionTables,
-		environment:         &environment.EC2{},
 	}
 
 	containerImgType = imageType{
@@ -524,6 +474,17 @@ func newDistro(version int) distro.Distro {
 
 	ociImgType := qcow2ImgType
 	ociImgType.name = "oci"
+
+	amiImgType := qcow2ImgType
+	amiImgType.name = "ami"
+	amiImgType.filename = "image.raw"
+	amiImgType.mimeType = "application/octet-stream"
+	amiImgType.payloadPipelines = []string{"os", "image"}
+	amiImgType.exports = []string{"image"}
+	amiImgType.environment = &environment.EC2{}
+
+	openstackImgType := qcow2ImgType
+	openstackImgType.name = "openstack"
 
 	x86_64.addImageTypes(
 		&platform.X86{

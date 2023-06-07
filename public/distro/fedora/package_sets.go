@@ -11,48 +11,22 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 )
 
-func ec2CommonPackageSet(t *imageType) rpmmd.PackageSet {
+func qcow2CommonPackageSet(t *imageType) rpmmd.PackageSet {
 	return rpmmd.PackageSet{
 		Include: []string{
-			"@core",
-			"chrony",
-			"langpacks-en",
-			"libxcrypt-compat",
-			"checkpolicy",
-			"net-tools",
-		},
-		Exclude: []string{
-			"dracut-config-rescue",
-			"geolite2-city",
-			"geolite2-country",
-			"zram-generator-defaults",
-		},
-	}
-}
-
-func qcow2CommonPackageSet(t *imageType) rpmmd.PackageSet {
-	ps := rpmmd.PackageSet{
-		Include: []string{
 			"@Fedora Cloud Server",
-			"chrony",
-			"systemd-udev",
+			"chrony", // not mentioned in the kickstart, anaconda pulls it when setting the timezone
 			"langpacks-en",
+			"qemu-guest-agent",
 		},
 		Exclude: []string{
 			"dracut-config-rescue",
-			"etables",
 			"firewalld",
 			"geolite2-city",
 			"geolite2-country",
-			"gobject-introspection",
 			"plymouth",
-			"zram-generator-defaults",
-			"grubby-deprecated",
-			"extlinux-bootloader",
 		},
 	}
-
-	return ps
 }
 
 func vhdCommonPackageSet(t *imageType) rpmmd.PackageSet {
@@ -98,29 +72,6 @@ func vmdkCommonPackageSet(t *imageType) rpmmd.PackageSet {
 			"zram-generator-defaults",
 			"grubby-deprecated",
 			"extlinux-bootloader",
-		},
-	}
-
-	return ps
-}
-
-func openstackCommonPackageSet(t *imageType) rpmmd.PackageSet {
-	ps := rpmmd.PackageSet{
-		Include: []string{
-			"@core",
-			"chrony",
-			"spice-vdagent",
-			"qemu-guest-agent",
-			"xen-libs",
-			"langpacks-en",
-			"cloud-init",
-			"libdrm",
-		},
-		Exclude: []string{
-			"dracut-config-rescue",
-			"geolite2-city",
-			"geolite2-country",
-			"zram-generator-defaults",
 		},
 	}
 
