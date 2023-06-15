@@ -30,6 +30,16 @@ const (
 	ARCH_PPC64LE
 )
 
+type Distro uint64
+
+const (
+	DISTRO_NULL = iota
+	DISTRO_EL9
+	DISTRO_EL8
+	DISTRO_EL7
+	DISTRO_FEDORA
+)
+
 // An OSBuildManifest is an opaque JSON object, which is a valid input to osbuild
 type OSBuildManifest []byte
 
@@ -48,39 +58,25 @@ func (m *OSBuildManifest) UnmarshalJSON(payload []byte) error {
 }
 
 // Manifest represents a manifest initialised with all the information required
-// to generate the pipelines but no content. The content included in the
-// Content field must be resolved before serializing.
+// to generate the pipelines but no content. The content type sources
+// (PackageSetChains, ContainerSourceSpecs, OSTreeSourceSpecs) must be
+// retrieved through their corresponding Getters and resolved before
+// serializing.
 type Manifest struct {
 
 	// pipelines describe the build process for an image.
 	pipelines []Pipeline
 
-	// Content for the image that will be built by the Manifest. Each content
-	// type should be resolved before passing to the Serialize method.
-	Content Content
-}
-
-// Content for the image that will be built by the Manifest. Each content type
-// should be resolved before passing to the Serialize method.
-type Content struct {
-	// PackageSets are sequences of package sets, each set consisting of a list
-	// of package names to include and exclude and a set of repositories to use
-	// for resolving. Package set sequences (chains) should be depsolved in
-	// separately and the result combined. Package set sequences (chains) are
-	// keyed by the name of the Pipeline that will install them.
-	PackageSets map[string][]rpmmd.PackageSet
-
-	// Containers are source specifications for containers to embed in the image.
-	Containers map[string][]container.SourceSpec
-
-	// OSTreeCommits are source specifications for ostree commits to embed in
-	// the image or use as parent commits when building a new one.
-	OSTreeCommits map[string][]ostree.SourceSpec
+	// Distro defines the distribution of the image that this manifest will
+	// generate. It is used for determining package names that differ between
+	// different distributions and version.
+	Distro Distro
 }
 
 func New() Manifest {
 	return Manifest{
 		pipelines: make([]Pipeline, 0),
+		Distro:    DISTRO_NULL,
 	}
 }
 
@@ -93,11 +89,13 @@ func (m *Manifest) addPipeline(p Pipeline) {
 	m.pipelines = append(m.pipelines, p)
 }
 
+type PackageSelector func([]rpmmd.PackageSet) []rpmmd.PackageSet
+
 func (m Manifest) GetPackageSetChains() map[string][]rpmmd.PackageSet {
 	chains := make(map[string][]rpmmd.PackageSet)
 
 	for _, pipeline := range m.pipelines {
-		if chain := pipeline.getPackageSetChain(); chain != nil {
+		if chain := pipeline.getPackageSetChain(m.Distro); chain != nil {
 			chains[pipeline.Name()] = chain
 		}
 	}
@@ -131,14 +129,14 @@ func (m Manifest) GetOSTreeSourceSpecs() map[string][]ostree.SourceSpec {
 	return ostreeSpecs
 }
 
-func (m Manifest) Serialize(packageSets map[string][]rpmmd.PackageSpec, containerSpecs map[string][]container.Spec) (OSBuildManifest, error) {
+func (m Manifest) Serialize(packageSets map[string][]rpmmd.PackageSpec, containerSpecs map[string][]container.Spec, ostreeCommits map[string][]ostree.CommitSpec) (OSBuildManifest, error) {
 	pipelines := make([]osbuild.Pipeline, 0)
 	packages := make([]rpmmd.PackageSpec, 0)
 	commits := make([]ostree.CommitSpec, 0)
 	inline := make([]string, 0)
 	containers := make([]container.Spec, 0)
 	for _, pipeline := range m.pipelines {
-		pipeline.serializeStart(packageSets[pipeline.Name()], containerSpecs[pipeline.Name()])
+		pipeline.serializeStart(packageSets[pipeline.Name()], containerSpecs[pipeline.Name()], ostreeCommits[pipeline.Name()])
 	}
 	for _, pipeline := range m.pipelines {
 		commits = append(commits, pipeline.getOSTreeCommits()...)

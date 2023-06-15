@@ -35,7 +35,7 @@ func NewRawOStreeImage(m *Manifest,
 	return p
 }
 
-func (p *RawOSTreeImage) getBuildPackages() []string {
+func (p *RawOSTreeImage) getBuildPackages(Distro) []string {
 	packages := p.platform.GetBuildPackages()
 	packages = append(packages, p.platform.GetPackages()...)
 	packages = append(packages, p.treePipeline.PartitionTable.GetBuildPackages()...)
@@ -74,7 +74,8 @@ func (p *RawOSTreeImage) serialize() osbuild.Pipeline {
 		_, bootCopyDevices, bootCopyMounts := osbuild.GenCopyFSTreeOptions(inputName, p.treePipeline.Name(), p.Filename, pt)
 		bootCopyOptions := &osbuild.CopyStageOptions{}
 
-		commitChecksum := p.treePipeline.commit.Checksum
+		commit := p.treePipeline.ostreeSpecs[0]
+		commitChecksum := commit.Checksum
 
 		bootCopyInputs := osbuild.OSTreeCheckoutInputs{
 			"ostree-tree": *osbuild.NewOSTreeCheckoutInput("org.osbuild.source", commitChecksum),

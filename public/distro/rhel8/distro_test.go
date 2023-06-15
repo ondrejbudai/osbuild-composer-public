@@ -287,7 +287,7 @@ func TestImageType_BuildPackages(t *testing.T) {
 					}
 					manifest, _, err := itStruct.Manifest(&blueprint.Blueprint{}, distro.ImageOptions{}, nil, 0)
 					assert.NoError(t, err)
-					buildPkgs := manifest.Content.PackageSets["build"]
+					buildPkgs := manifest.GetPackageSetChains()["build"]
 					assert.NotNil(t, buildPkgs)
 					assert.Len(t, buildPkgs, 1)
 					assert.ElementsMatch(t, buildPackages[archLabel], buildPkgs[0].Include)
@@ -634,6 +634,10 @@ func TestRhel8_ModulePlatformID(t *testing.T) {
 
 func TestRhel86_KernelOption(t *testing.T) {
 	distro_test_common.TestDistro_KernelOption(t, rhel8.New())
+}
+
+func TestRhel8_OSTreeOptions(t *testing.T) {
+	distro_test_common.TestDistro_OSTreeOptions(t, rhel8.New())
 }
 
 func TestDistro_CustomFileSystemManifestError(t *testing.T) {

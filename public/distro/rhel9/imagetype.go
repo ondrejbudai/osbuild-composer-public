@@ -17,6 +17,7 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/image"
 	"github.com/ondrejbudai/osbuild-composer-public/public/manifest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/oscap"
+	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
 	"github.com/ondrejbudai/osbuild-composer-public/public/pathpolicy"
 	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
@@ -247,17 +248,14 @@ func (t *imageType) Manifest(bp *blueprint.Blueprint,
 	if err != nil {
 		return nil, nil, err
 	}
-	manifest := manifest.New()
-	_, err = img.InstantiateManifest(&manifest, repos, t.arch.distro.runner, rng)
+	mf := manifest.New()
+	mf.Distro = manifest.DISTRO_EL9
+	_, err = img.InstantiateManifest(&mf, repos, t.arch.distro.runner, rng)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	manifest.Content.PackageSets = manifest.GetPackageSetChains()
-	manifest.Content.Containers = manifest.GetContainerSourceSpecs()
-	manifest.Content.OSTreeCommits = manifest.GetOSTreeSourceSpecs()
-
-	return &manifest, warnings, err
+	return &mf, warnings, err
 }
 
 // checkOptions checks the validity and compatibility of options and customizations for the image type.
@@ -284,14 +282,18 @@ func (t *imageType) checkOptions(bp *blueprint.Blueprint, options distro.ImageOp
 		return warnings, fmt.Errorf("embedding containers is not supported for %s on %s", t.name, t.arch.distro.name)
 	}
 
-	ostreeChecksum := ""
+	ostreeURL := ""
 	if options.OSTree != nil {
-		ostreeChecksum = options.OSTree.FetchChecksum
+		if options.OSTree.ParentRef != "" && options.OSTree.URL == "" {
+			// specifying parent ref also requires URL
+			return nil, ostree.NewParameterComboError("ostree parent ref specified, but no URL to retrieve it")
+		}
+		ostreeURL = options.OSTree.URL
 	}
 
 	if t.bootISO && t.rpmOstree {
-		// check the checksum instead of the URL, because the URL should have been used to resolve the checksum and we need both
-		if ostreeChecksum == "" {
+		// ostree-based ISOs require a URL from which to pull a payload commit
+		if ostreeURL == "" {
 			return warnings, fmt.Errorf("boot ISO image type %q requires specifying a URL from which to retrieve the OSTree commit", t.name)
 		}
 
@@ -342,8 +344,8 @@ func (t *imageType) checkOptions(bp *blueprint.Blueprint, options distro.ImageOp
 	}
 
 	if t.name == "edge-raw-image" || t.name == "edge-ami" {
-		// check the checksum instead of the URL, because the URL should have been used to resolve the checksum and we need both
-		if ostreeChecksum == "" {
+		// ostree-based bootable images require a URL from which to pull a payload commit
+		if ostreeURL == "" {
 			return warnings, fmt.Errorf("%q images require specifying a URL from which to retrieve the OSTree commit", t.name)
 		}
 

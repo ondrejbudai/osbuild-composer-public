@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -40,19 +41,26 @@ func TestDistro_Manifest(t *testing.T, pipelinePath string, prefix string, regis
 			CheckGPG    bool     `json:"check_gpg,omitempty"`
 			PackageSets []string `json:"package-sets,omitempty"`
 		}
+		type ostreeOptions struct {
+			Ref    string `json:"ref"`
+			URL    string `json:"url"`
+			Parent string `json:"parent"`
+			RHSM   bool   `json:"rhsm"`
+		}
 		type composeRequest struct {
 			Distro       string               `json:"distro"`
 			Arch         string               `json:"arch"`
 			ImageType    string               `json:"image-type"`
 			Repositories []repository         `json:"repositories"`
 			Blueprint    *blueprint.Blueprint `json:"blueprint"`
-			OSTree       *ostree.SourceSpec   `json:"ostree"`
+			OSTree       ostreeOptions        `json:"ostree"`
 		}
 		var tt struct {
 			ComposeRequest  *composeRequest                `json:"compose-request"`
 			PackageSpecSets map[string][]rpmmd.PackageSpec `json:"rpmmd"`
 			Manifest        manifest.OSBuildManifest       `json:"manifest,omitempty"`
 			Containers      map[string][]container.Spec    `json:"containers,omitempty"`
+			OSTreeCommits   map[string][]ostree.CommitSpec `json:"ostree-commits,omitempty"`
 		}
 		file, err := os.ReadFile(fileName)
 		assert.NoErrorf(err, "Could not read test-case '%s': %v", fileName, err)
@@ -101,21 +109,11 @@ func TestDistro_Manifest(t *testing.T, pipelinePath string, prefix string, regis
 				return
 			}
 
-			var ostreeOptions *ostree.ImageOptions
-			if ref := imageType.OSTreeRef(); ref != "" {
-				if tt.ComposeRequest.OSTree != nil {
-					ostreeOptions = &ostree.ImageOptions{
-						ImageRef:      tt.ComposeRequest.OSTree.Ref,
-						FetchChecksum: tt.ComposeRequest.OSTree.Parent,
-						URL:           tt.ComposeRequest.OSTree.URL,
-						RHSM:          tt.ComposeRequest.OSTree.RHSM,
-					}
-				}
-			}
-			if ostreeOptions == nil { // set image type default if not specified in request
-				ostreeOptions = &ostree.ImageOptions{
-					ImageRef: imageType.OSTreeRef(),
-				}
+			ostreeOptions := &ostree.ImageOptions{
+				ImageRef:  tt.ComposeRequest.OSTree.Ref,
+				ParentRef: tt.ComposeRequest.OSTree.Parent,
+				URL:       tt.ComposeRequest.OSTree.URL,
+				RHSM:      tt.ComposeRequest.OSTree.RHSM,
 			}
 
 			options := distro.ImageOptions{
@@ -149,7 +147,8 @@ func TestDistro_Manifest(t *testing.T, pipelinePath string, prefix string, regis
 				t.Errorf("distro.Manifest() error = %v", err)
 				return
 			}
-			got, err := manifest.Serialize(imgPackageSpecSets, tt.Containers)
+
+			got, err := manifest.Serialize(imgPackageSpecSets, tt.Containers, tt.OSTreeCommits)
 
 			if (err == nil && tt.Manifest == nil) || (err != nil && tt.Manifest != nil) {
 				t.Errorf("distro.Manifest() error = %v", err)
@@ -174,7 +173,7 @@ func getImageTypePkgSpecSets(imageType distro.ImageType, bp blueprint.Blueprint,
 	if err != nil {
 		panic("Could not generate manifest for package sets: " + err.Error())
 	}
-	imgPackageSets := manifest.Content.PackageSets
+	imgPackageSets := manifest.GetPackageSetChains()
 
 	solver := dnfjson.NewSolver(imageType.Arch().Distro().ModulePlatformID(),
 		imageType.Arch().Distro().Releasever(),
@@ -203,15 +202,13 @@ var knownKernels = []string{"kernel", "kernel-debug", "kernel-rt"}
 // Returns the number of known kernels in the package list
 func kernelCount(imgType distro.ImageType, bp blueprint.Blueprint) int {
 	ostreeOptions := &ostree.ImageOptions{
-		URL:           "foo",
-		ImageRef:      "bar",
-		FetchChecksum: "baz",
+		URL: "https://example.com", // required by some image types
 	}
 	manifest, _, err := imgType.Manifest(&bp, distro.ImageOptions{OSTree: ostreeOptions}, nil, 0)
 	if err != nil {
 		panic(err)
 	}
-	sets := manifest.Content.PackageSets
+	sets := manifest.GetPackageSetChains()
 
 	// Use a map to count unique kernels in a package set. If the same kernel
 	// name appears twice, it will only be installed once, so we only count it
@@ -273,9 +270,6 @@ func TestDistro_KernelOption(t *testing.T, d distro.Distro) {
 			arch, err := d.GetArch(archName)
 			assert.NoError(t, err)
 			for _, typeName := range arch.ListImageTypes() {
-				if true {
-					break
-				}
 				if skipList[typeName] {
 					continue
 				}
@@ -321,6 +315,304 @@ func TestDistro_KernelOption(t *testing.T, d distro.Distro) {
 							"Image type %s (arch %s) specifies %d Kernel packages", typeName, archName, nk)
 					}
 				}
+			}
+		}
+	}
+}
+
+func TestDistro_OSTreeOptions(t *testing.T, d distro.Distro) {
+	// test that ostree parameters are properly resolved by image functions that should support them
+	typesWithParent := map[string]bool{ // image types that support specifying a parent commit
+		"edge-commit":    true,
+		"edge-container": true,
+		"iot-commit":     true,
+		"iot-container":  true,
+	}
+
+	typesWithPayload := map[string]bool{
+		"edge-ami":                  true,
+		"edge-installer":            true,
+		"edge-raw-image":            true,
+		"edge-simplified-installer": true,
+		"iot-ami":                   true,
+		"iot-installer":             true,
+		"iot-raw-image":             true,
+		"iot-simplified-installer":  true,
+	}
+
+	assert := assert.New(t)
+
+	{ // empty options: payload ref should equal default
+		for _, archName := range d.ListArches() {
+			arch, err := d.GetArch(archName)
+			assert.NoError(err)
+			for _, typeName := range arch.ListImageTypes() {
+				bp := &blueprint.Blueprint{}
+				if strings.HasSuffix(typeName, "simplified-installer") {
+					// simplified installers require installation device
+					bp = &blueprint.Blueprint{
+						Customizations: &blueprint.Customizations{
+							InstallationDevice: "/dev/sda42",
+						},
+					}
+				}
+				imgType, err := arch.GetImageType(typeName)
+				assert.NoError(err)
+
+				ostreeOptions := ostree.ImageOptions{}
+				if typesWithPayload[typeName] {
+					// payload types require URL
+					ostreeOptions.URL = "https://example.com/repo"
+				}
+				options := distro.ImageOptions{OSTree: &ostreeOptions}
+
+				m, _, err := imgType.Manifest(bp, options, nil, 0)
+				assert.NoError(err)
+
+				nrefs := 0
+				// If a manifest returns an ostree source spec, the ref should
+				// match the default.
+				for _, commits := range m.GetOSTreeSourceSpecs() {
+					for _, commit := range commits {
+						assert.Equal(options.OSTree.URL, commit.URL, "url does not match expected for image type %q\n", typeName)
+						assert.Equal(imgType.OSTreeRef(), commit.Ref, "ref does not match expected for image type %q\n", typeName)
+						nrefs++
+					}
+				}
+				nexpected := 0
+				if typesWithPayload[typeName] {
+					// image types with payload should return a ref
+					nexpected = 1
+				}
+				assert.Equal(nexpected, nrefs, "incorrect ref count for image type %q\n", typeName)
+			}
+		}
+	}
+
+	{ // ImageRef set: should be returned as payload ref - no parent for commits and containers
+		for _, archName := range d.ListArches() {
+			arch, err := d.GetArch(archName)
+			assert.NoError(err)
+			for _, typeName := range arch.ListImageTypes() {
+				bp := &blueprint.Blueprint{}
+				if strings.HasSuffix(typeName, "simplified-installer") {
+					// simplified installers require installation device
+					bp = &blueprint.Blueprint{
+						Customizations: &blueprint.Customizations{
+							InstallationDevice: "/dev/sda42",
+						},
+					}
+				}
+
+				imgType, err := arch.GetImageType(typeName)
+				assert.NoError(err)
+
+				ostreeOptions := ostree.ImageOptions{
+					ImageRef: "test/x86_64/01",
+				}
+				if typesWithPayload[typeName] {
+					// payload types require URL
+					ostreeOptions.URL = "https://example.com/repo"
+				}
+				options := distro.ImageOptions{OSTree: &ostreeOptions}
+				m, _, err := imgType.Manifest(bp, options, nil, 0)
+				assert.NoError(err)
+
+				nrefs := 0
+				// if a manifest returns an ostree source spec, the ref should
+				// match the default
+				for _, commits := range m.GetOSTreeSourceSpecs() {
+					for _, commit := range commits {
+						assert.Equal(options.OSTree.URL, commit.URL, "url does not match expected for image type %q\n", typeName)
+						assert.Equal(options.OSTree.ImageRef, commit.Ref, "ref does not match expected for image type %q\n", typeName)
+						nrefs++
+					}
+				}
+				nexpected := 0
+				if typesWithPayload[typeName] {
+					// image types with payload should return a ref
+					nexpected = 1
+				}
+				assert.Equal(nexpected, nrefs, "incorrect ref count for image type %q\n", typeName)
+			}
+		}
+	}
+
+	{ // URL always specified: should add a parent to image types that support it and the ref should match the option
+		for _, archName := range d.ListArches() {
+			arch, err := d.GetArch(archName)
+			assert.NoError(err)
+			for _, typeName := range arch.ListImageTypes() {
+				bp := &blueprint.Blueprint{}
+				if strings.HasSuffix(typeName, "simplified-installer") {
+					// simplified installers require installation device
+					bp = &blueprint.Blueprint{
+						Customizations: &blueprint.Customizations{
+							InstallationDevice: "/dev/sda42",
+						},
+					}
+				}
+
+				imgType, err := arch.GetImageType(typeName)
+				assert.NoError(err)
+
+				ostreeOptions := ostree.ImageOptions{
+					ImageRef: "test/x86_64/01",
+					URL:      "https://example.com/repo",
+				}
+				options := distro.ImageOptions{OSTree: &ostreeOptions}
+				m, _, err := imgType.Manifest(bp, options, nil, 0)
+				assert.NoError(err)
+
+				nrefs := 0
+				for _, commits := range m.GetOSTreeSourceSpecs() {
+					for _, commit := range commits {
+						assert.Equal(options.OSTree.URL, commit.URL, "url does not match expected for image type %q\n", typeName)
+						assert.Equal(options.OSTree.ImageRef, commit.Ref, "ref does not match expected for image type %q\n", typeName)
+						nrefs++
+					}
+				}
+				nexpected := 0
+				if typesWithPayload[typeName] || typesWithParent[typeName] {
+					// image types with payload or parent should return a ref
+					nexpected = 1
+				}
+				assert.Equal(nexpected, nrefs, "incorrect ref count for image type %q\n", typeName)
+			}
+		}
+	}
+
+	{ // URL and parent ref always specified: payload ref should be default - parent ref should match option
+		for _, archName := range d.ListArches() {
+			arch, err := d.GetArch(archName)
+			assert.NoError(err)
+			for _, typeName := range arch.ListImageTypes() {
+				bp := &blueprint.Blueprint{}
+				if strings.HasSuffix(typeName, "simplified-installer") {
+					// simplified installers require installation device
+					bp = &blueprint.Blueprint{
+						Customizations: &blueprint.Customizations{
+							InstallationDevice: "/dev/sda42",
+						},
+					}
+				}
+
+				imgType, err := arch.GetImageType(typeName)
+				assert.NoError(err)
+
+				ostreeOptions := ostree.ImageOptions{
+					ParentRef: "test/x86_64/01",
+					URL:       "https://example.com/repo",
+				}
+				options := distro.ImageOptions{OSTree: &ostreeOptions}
+				m, _, err := imgType.Manifest(bp, options, nil, 0)
+				assert.NoError(err)
+
+				nrefs := 0
+				for _, commits := range m.GetOSTreeSourceSpecs() {
+					for _, commit := range commits {
+						assert.Equal(options.OSTree.URL, commit.URL, "url does not match expected for image type %q\n", typeName)
+						if typesWithPayload[typeName] {
+							// payload ref should fall back to default
+							assert.Equal(imgType.OSTreeRef(), commit.Ref, "ref does not match expected for image type %q\n", typeName)
+						} else if typesWithParent[typeName] {
+							// parent ref should match option
+							assert.Equal(options.OSTree.ParentRef, commit.Ref, "ref does not match expected for image type %q\n", typeName)
+						} else {
+							// image type requires ostree commit but isn't specified: this shouldn't happen
+							panic(fmt.Sprintf("image type %q requires ostree commit but is not covered by test", typeName))
+						}
+						nrefs++
+					}
+				}
+				nexpected := 0
+				if typesWithPayload[typeName] || typesWithParent[typeName] {
+					// image types with payload or parent should return a ref
+					nexpected = 1
+				}
+				assert.Equal(nexpected, nrefs, "incorrect ref count for image type %q\n", typeName)
+			}
+		}
+	}
+
+	{ // All options set: all refs should match the corresponding option
+		for _, archName := range d.ListArches() {
+			arch, err := d.GetArch(archName)
+			assert.NoError(err)
+			for _, typeName := range arch.ListImageTypes() {
+				bp := &blueprint.Blueprint{}
+				if strings.HasSuffix(typeName, "simplified-installer") {
+					// simplified installers require installation device
+					bp = &blueprint.Blueprint{
+						Customizations: &blueprint.Customizations{
+							InstallationDevice: "/dev/sda42",
+						},
+					}
+				}
+
+				imgType, err := arch.GetImageType(typeName)
+				assert.NoError(err)
+
+				ostreeOptions := ostree.ImageOptions{
+					ImageRef:  "test/x86_64/01",
+					ParentRef: "test/x86_64/02",
+					URL:       "https://example.com/repo",
+				}
+				options := distro.ImageOptions{OSTree: &ostreeOptions}
+				m, _, err := imgType.Manifest(bp, options, nil, 0)
+				assert.NoError(err)
+
+				nrefs := 0
+				for _, commits := range m.GetOSTreeSourceSpecs() {
+					for _, commit := range commits {
+						assert.Equal(options.OSTree.URL, commit.URL, "url does not match expected for image type %q\n", typeName)
+						if typesWithPayload[typeName] {
+							// payload ref should match image ref
+							assert.Equal(options.OSTree.ImageRef, commit.Ref, "ref does not match expected for image type %q\n", typeName)
+						} else if typesWithParent[typeName] {
+							// parent ref should match option
+							assert.Equal(options.OSTree.ParentRef, commit.Ref, "ref does not match expected for image type %q\n", typeName)
+						} else {
+							// image type requires ostree commit but isn't specified: this shouldn't happen
+							panic(fmt.Sprintf("image type %q requires ostree commit but is not covered by test", typeName))
+						}
+						nrefs++
+					}
+				}
+				nexpected := 0
+				if typesWithPayload[typeName] || typesWithParent[typeName] {
+					// image types with payload or parent should return a ref
+					nexpected = 1
+				}
+				assert.Equal(nexpected, nrefs, "incorrect ref count for image type %q\n", typeName)
+			}
+		}
+	}
+
+	{ // Parent set without URL: always causes error
+		for _, archName := range d.ListArches() {
+			arch, err := d.GetArch(archName)
+			assert.NoError(err)
+			for _, typeName := range arch.ListImageTypes() {
+				bp := &blueprint.Blueprint{}
+				if strings.HasSuffix(typeName, "simplified-installer") {
+					// simplified installers require installation device
+					bp = &blueprint.Blueprint{
+						Customizations: &blueprint.Customizations{
+							InstallationDevice: "/dev/sda42",
+						},
+					}
+				}
+
+				imgType, err := arch.GetImageType(typeName)
+				assert.NoError(err)
+
+				ostreeOptions := ostree.ImageOptions{
+					ParentRef: "test/x86_64/02",
+				}
+				options := distro.ImageOptions{OSTree: &ostreeOptions}
+				_, _, err = imgType.Manifest(bp, options, nil, 0)
+				assert.Error(err)
 			}
 		}
 	}

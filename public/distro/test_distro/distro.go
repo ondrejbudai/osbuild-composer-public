@@ -1,14 +1,18 @@
 package test_distro
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sort"
 
 	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
+	"github.com/ondrejbudai/osbuild-composer-public/public/container"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
 	"github.com/ondrejbudai/osbuild-composer-public/public/manifest"
+	dnfjson_mock "github.com/ondrejbudai/osbuild-composer-public/public/mocks/dnfjson"
+	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 )
 
@@ -234,33 +238,60 @@ func (t *TestImageType) Manifest(b *blueprint.Blueprint, options distro.ImageOpt
 		bpPkgs = b.GetPackages()
 	}
 
-	ret := manifest.Manifest{
-		Content: manifest.Content{
-			PackageSets: map[string][]rpmmd.PackageSet{
-				buildPkgsKey: {{
-					Include: []string{
-						"dep-package1",
-						"dep-package2",
-						"dep-package3",
-					},
-					Repositories: repos,
-				}},
-				blueprintPkgsKey: {{
-					Include:      bpPkgs,
-					Repositories: repos,
-				}},
-				osPkgsKey: {{
-					Include: []string{
-						"dep-package1",
-						"dep-package2",
-						"dep-package3",
-					},
-					Repositories: repos,
-				}},
+	var ostreeSources []ostree.SourceSpec
+	if defaultRef := t.OSTreeRef(); defaultRef != "" {
+		// ostree image type
+		ostreeSource := ostree.SourceSpec{ // init with default
+			Ref: defaultRef,
+		}
+		if ostreeOptions := options.OSTree; ostreeOptions != nil {
+			// handle the parameter combo error like we do in distros
+			if ostreeOptions.ParentRef != "" && ostreeOptions.URL == "" {
+				// specifying parent ref also requires URL
+				return nil, nil, ostree.NewParameterComboError("ostree parent ref specified, but no URL to retrieve it")
+			}
+			if ostreeOptions.ImageRef != "" { // override with ref from image options
+				ostreeSource.Ref = ostreeOptions.ImageRef
+			}
+			if ostreeOptions.ParentRef != "" { // override with parent ref
+				ostreeSource.Ref = ostreeOptions.ParentRef
+			}
+			// copy any other options that might be specified
+			ostreeSource.URL = options.OSTree.URL
+			ostreeSource.RHSM = options.OSTree.RHSM
+		}
+		ostreeSources = []ostree.SourceSpec{ostreeSource}
+	}
+
+	buildPackages := []rpmmd.PackageSet{{
+		Include: []string{
+			"dep-package1",
+			"dep-package2",
+			"dep-package3",
+		},
+		Repositories: repos,
+	}}
+	osPackages := []rpmmd.PackageSet{
+		{
+			Include:      bpPkgs,
+			Repositories: repos,
+		},
+		{
+			Include: []string{
+				"dep-package1",
+				"dep-package2",
+				"dep-package3",
 			},
+			Repositories: repos,
 		},
 	}
-	return &ret, nil, nil
+
+	m := &manifest.Manifest{}
+
+	manifest.NewContentTest(m, buildPkgsKey, buildPackages, nil, nil)
+	manifest.NewContentTest(m, osPkgsKey, osPackages, nil, ostreeSources)
+
+	return m, nil, nil
 }
 
 // newTestDistro returns a new instance of TestDistro with the
@@ -362,4 +393,43 @@ func NewRegistry() *distroregistry.Registry {
 // New2 returns new instance of TestDistro named "test-distro-2".
 func New2() *TestDistro {
 	return newTestDistro(TestDistro2Name, TestDistro2ModulePlatformID, TestDistro2Releasever)
+}
+
+// ResolveContent transforms content source specs into resolved specs for serialization.
+// For packages, it uses the dnfjson_mock.BaseDeps() every time, but retains
+// the map keys from the input.
+// For ostree commits it hashes the URL+Ref to create a checksum.
+func ResolveContent(pkgs map[string][]rpmmd.PackageSet, containers map[string][]container.SourceSpec, commits map[string][]ostree.SourceSpec) (map[string][]rpmmd.PackageSpec, map[string][]container.Spec, map[string][]ostree.CommitSpec) {
+
+	pkgSpecs := make(map[string][]rpmmd.PackageSpec, len(pkgs))
+	for name := range pkgs {
+		pkgSpecs[name] = dnfjson_mock.BaseDeps()
+	}
+
+	containerSpecs := make(map[string][]container.Spec, len(containers))
+	for name := range containers {
+		containerSpecs[name] = make([]container.Spec, len(containers[name]))
+		for idx := range containers[name] {
+			containerSpecs[name][idx] = container.Spec{
+				Source:    containers[name][idx].Source,
+				TLSVerify: containers[name][idx].TLSVerify,
+				LocalName: containers[name][idx].Name,
+			}
+		}
+	}
+
+	commitSpecs := make(map[string][]ostree.CommitSpec, len(commits))
+	for name := range commits {
+		commitSpecs[name] = make([]ostree.CommitSpec, len(commits[name]))
+		for idx := range commits[name] {
+			commitSpecs[name][idx] = ostree.CommitSpec{
+				Ref:      commits[name][idx].Ref,
+				URL:      commits[name][idx].URL,
+				Checksum: fmt.Sprintf("%x", sha256.Sum256([]byte(commits[name][idx].URL+commits[name][idx].Ref))),
+			}
+			fmt.Printf("Test distro spec: %+v\n", commitSpecs[name][idx])
+		}
+	}
+
+	return pkgSpecs, containerSpecs, commitSpecs
 }

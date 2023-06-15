@@ -5,6 +5,7 @@ import (
 
 	"github.com/ondrejbudai/osbuild-composer-public/public/container"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
+	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
 	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/users"
@@ -115,7 +116,7 @@ func (p *Anaconda) anacondaBootPackageSet() []string {
 	return packages
 }
 
-func (p *Anaconda) getBuildPackages() []string {
+func (p *Anaconda) getBuildPackages(Distro) []string {
 	packages := p.anacondaBootPackageSet()
 	packages = append(packages,
 		"rpm",
@@ -124,7 +125,7 @@ func (p *Anaconda) getBuildPackages() []string {
 	return packages
 }
 
-func (p *Anaconda) getPackageSetChain() []rpmmd.PackageSet {
+func (p *Anaconda) getPackageSetChain(Distro) []rpmmd.PackageSet {
 	packages := p.anacondaBootPackageSet()
 	if p.Biosdevname {
 		packages = append(packages, "biosdevname")
@@ -141,7 +142,7 @@ func (p *Anaconda) getPackageSpecs() []rpmmd.PackageSpec {
 	return p.packageSpecs
 }
 
-func (p *Anaconda) serializeStart(packages []rpmmd.PackageSpec, _ []container.Spec) {
+func (p *Anaconda) serializeStart(packages []rpmmd.PackageSpec, _ []container.Spec, _ []ostree.CommitSpec) {
 	if len(p.packageSpecs) > 0 {
 		panic("double call to serializeStart()")
 	}

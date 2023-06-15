@@ -6,6 +6,7 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/container"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
+	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
 	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 )
@@ -60,7 +61,7 @@ func NewOSTreeCommitServer(m *Manifest,
 	return p
 }
 
-func (p *OSTreeCommitServer) getPackageSetChain() []rpmmd.PackageSet {
+func (p *OSTreeCommitServer) getPackageSetChain(Distro) []rpmmd.PackageSet {
 	// FIXME: container package is defined here
 	packages := []string{"nginx"}
 	return []rpmmd.PackageSet{
@@ -71,7 +72,7 @@ func (p *OSTreeCommitServer) getPackageSetChain() []rpmmd.PackageSet {
 	}
 }
 
-func (p *OSTreeCommitServer) getBuildPackages() []string {
+func (p *OSTreeCommitServer) getBuildPackages(Distro) []string {
 	packages := []string{
 		"rpm",
 		"rpm-ostree",
@@ -83,7 +84,7 @@ func (p *OSTreeCommitServer) getPackageSpecs() []rpmmd.PackageSpec {
 	return p.packageSpecs
 }
 
-func (p *OSTreeCommitServer) serializeStart(packages []rpmmd.PackageSpec, _ []container.Spec) {
+func (p *OSTreeCommitServer) serializeStart(packages []rpmmd.PackageSpec, _ []container.Spec, _ []ostree.CommitSpec) {
 	if len(p.packageSpecs) > 0 {
 		panic("double call to serializeStart()")
 	}

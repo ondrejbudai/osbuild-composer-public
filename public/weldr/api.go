@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	errors_package "errors"
@@ -2335,6 +2336,31 @@ func (api *API) resolveContainers(sourceSpecs map[string][]container.SourceSpec)
 	return specs, nil
 }
 
+func (api *API) resolveOSTreeCommits(sourceSpecs map[string][]ostree.SourceSpec, test bool) (map[string][]ostree.CommitSpec, error) {
+	commitSpecs := make(map[string][]ostree.CommitSpec, len(sourceSpecs))
+	for name, sources := range sourceSpecs {
+		commits := make([]ostree.CommitSpec, len(sources))
+		for idx, source := range sources {
+			if test {
+				checksum := fmt.Sprintf("%x", sha256.Sum256([]byte(source.URL+source.Ref)))
+				commits[idx] = ostree.CommitSpec{
+					Ref:      source.Ref,
+					URL:      source.URL,
+					Checksum: checksum,
+				}
+			} else {
+				commit, err := ostree.Resolve(source)
+				if err != nil {
+					return nil, err
+				}
+				commits[idx] = commit
+			}
+		}
+		commitSpecs[name] = commits
+	}
+	return commitSpecs, nil
+}
+
 // Schedule new compose by first translating the appropriate blueprint into a pipeline and then
 // pushing it into the channel for waiting builds.
 func (api *API) composeHandler(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
@@ -2344,12 +2370,12 @@ func (api *API) composeHandler(writer http.ResponseWriter, request *http.Request
 
 	// https://weldr.io/lorax/pylorax.api.html#pylorax.api.v0.v0_compose_start
 	type ComposeRequest struct {
-		BlueprintName string            `json:"blueprint_name"`
-		ComposeType   string            `json:"compose_type"`
-		Size          uint64            `json:"size"`
-		OSTree        ostree.SourceSpec `json:"ostree"`
-		Branch        string            `json:"branch"`
-		Upload        *uploadRequest    `json:"upload"`
+		BlueprintName string              `json:"blueprint_name"`
+		ComposeType   string              `json:"compose_type"`
+		Size          uint64              `json:"size"`
+		OSTree        ostree.ImageOptions `json:"ostree"`
+		Branch        string              `json:"branch"`
+		Upload        *uploadRequest      `json:"upload"`
 	}
 	type ComposeReply struct {
 		BuildID  uuid.UUID `json:"build_id"`
@@ -2441,32 +2467,6 @@ func (api *API) composeHandler(writer http.ResponseWriter, request *http.Request
 		statusResponseError(writer, http.StatusBadRequest, errors)
 		return
 	}
-	testMode := q.Get("test")
-
-	ostreeOptions := &ostree.ImageOptions{
-		URL: cr.OSTree.URL,
-	}
-	if testMode == "1" || testMode == "2" {
-		// Fake a parent commit for test requests
-		cr.OSTree.Parent = "02604b2da6e954bd34b8b82a835e5a77d2b60ffa"
-	} else if imageType.OSTreeRef() != "" {
-		// If the image type has a default ostree ref, assume this is an OSTree image
-		reqParams := cr.OSTree
-		if reqParams.Ref == "" {
-			reqParams.Ref = imageType.OSTreeRef()
-		}
-		ref, checksum, err := ostree.Resolve(reqParams)
-		if err != nil {
-			errors := responseError{
-				ID:  "OSTreeOptionsError",
-				Msg: err.Error(),
-			}
-			statusResponseError(writer, http.StatusBadRequest, errors)
-			return
-		}
-		ostreeOptions.ImageRef = ref
-		ostreeOptions.FetchChecksum = checksum
-	}
 
 	var size uint64
 
@@ -2487,7 +2487,7 @@ func (api *API) composeHandler(writer http.ResponseWriter, request *http.Request
 
 	options := distro.ImageOptions{
 		Size:   size,
-		OSTree: ostreeOptions,
+		OSTree: &cr.OSTree,
 	}
 	options.Facts = &facts.ImageOptions{
 		APIType: facts.WELDR_APITYPE,
@@ -2513,7 +2513,7 @@ func (api *API) composeHandler(writer http.ResponseWriter, request *http.Request
 		return
 	}
 
-	packageSets, err := api.depsolve(manifest.Content.PackageSets, imageType.Arch().Distro())
+	packageSets, err := api.depsolve(manifest.GetPackageSetChains(), imageType.Arch().Distro())
 	if err != nil {
 		errors := responseError{
 			ID:  "DepsolveError",
@@ -2523,7 +2523,7 @@ func (api *API) composeHandler(writer http.ResponseWriter, request *http.Request
 		return
 	}
 
-	containerSpecs, err := api.resolveContainers(manifest.Content.Containers)
+	containerSpecs, err := api.resolveContainers(manifest.GetContainerSourceSpecs())
 	if err != nil {
 		errors := responseError{
 			ID:  "ContainerResolveError",
@@ -2533,7 +2533,19 @@ func (api *API) composeHandler(writer http.ResponseWriter, request *http.Request
 		return
 	}
 
-	mf, err := manifest.Serialize(packageSets, containerSpecs)
+	testMode := q.Get("test")
+
+	ostreeCommitSpecs, err := api.resolveOSTreeCommits(manifest.GetOSTreeSourceSpecs(), testMode == "1" || testMode == "2")
+	if err != nil {
+		errors := responseError{
+			ID:  "OSTreeOptionsError",
+			Msg: err.Error(),
+		}
+		statusResponseError(writer, http.StatusBadRequest, errors)
+		return
+	}
+
+	mf, err := manifest.Serialize(packageSets, containerSpecs, ostreeCommitSpecs)
 	if err != nil {
 		errors := responseError{
 			ID:  "ManifestCreationFailed",

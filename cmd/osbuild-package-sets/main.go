@@ -50,14 +50,12 @@ func main() {
 	encoder.SetIndent("", "  ")
 	options := distro.ImageOptions{
 		OSTree: &ostree.ImageOptions{
-			URL:           "foo",
-			ImageRef:      "bar",
-			FetchChecksum: "baz",
+			URL: "https://example.com", // required by some image types
 		},
 	}
 	manifest, _, err := image.Manifest(&blueprint.Blueprint{}, options, nil, 0)
 	if err != nil {
 		panic(err)
 	}
-	_ = encoder.Encode(manifest.Content.PackageSets)
+	_ = encoder.Encode(manifest.GetPackageSetChains())
 }

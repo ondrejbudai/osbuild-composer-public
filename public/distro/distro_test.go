@@ -1,6 +1,7 @@
 package distro_test
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -56,14 +57,12 @@ func TestImageType_PackageSetsChains(t *testing.T) {
 					}
 					options := distro.ImageOptions{
 						OSTree: &ostree.ImageOptions{
-							URL:           "foo",
-							ImageRef:      "bar",
-							FetchChecksum: "baz",
+							URL: "https://example.com", // required by some image types
 						},
 					}
 					manifest, _, err := imageType.Manifest(&bp, options, nil, 0)
 					require.NoError(t, err)
-					imagePkgSets := manifest.Content.PackageSets
+					imagePkgSets := manifest.GetPackageSetChains()
 					for packageSetName := range imageType.PackageSetsChains() {
 						_, ok := imagePkgSets[packageSetName]
 						if !ok {
@@ -147,9 +146,7 @@ func TestImageTypePipelineNames(t *testing.T) {
 
 					// Add ostree options for image types that require them
 					options.OSTree = &ostree.ImageOptions{
-						ImageRef:      imageType.OSTreeRef(),
-						URL:           "https://example.com/repo",
-						FetchChecksum: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+						URL: "https://example.com",
 					}
 
 					// Pipelines that require package sets will fail if none
@@ -171,7 +168,21 @@ func TestImageTypePipelineNames(t *testing.T) {
 					assert.NoError(err)
 
 					containers := make(map[string][]container.Spec, 0)
-					mf, err := m.Serialize(packageSets, containers)
+
+					ostreeSources := m.GetOSTreeSourceSpecs()
+					commits := make(map[string][]ostree.CommitSpec, len(ostreeSources))
+					for name, commitSources := range ostreeSources {
+						commitSpecs := make([]ostree.CommitSpec, len(commitSources))
+						for idx, commitSource := range commitSources {
+							commitSpecs[idx] = ostree.CommitSpec{
+								Ref:      commitSource.Ref,
+								URL:      commitSource.URL,
+								Checksum: fmt.Sprintf("%x", sha256.Sum256([]byte(commitSource.URL+commitSource.Ref))),
+							}
+						}
+						commits[name] = commitSpecs
+					}
+					mf, err := m.Serialize(packageSets, containers, commits)
 					assert.NoError(err)
 					pm := new(manifest)
 					err = json.Unmarshal(mf, pm)
@@ -448,15 +459,13 @@ func TestPipelineRepositories(t *testing.T) {
 
 							// Add ostree options for image types that require them
 							options.OSTree = &ostree.ImageOptions{
-								ImageRef:      imageType.OSTreeRef(),
-								URL:           "https://example.com/repo",
-								FetchChecksum: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+								URL: "https://example.com",
 							}
 
 							repos := tCase.repos
 							manifest, _, err := imageType.Manifest(&bp, options, repos, 0)
 							require.NoError(err)
-							packageSets := manifest.Content.PackageSets
+							packageSets := manifest.GetPackageSetChains()
 
 							var globals stringSet
 							if len(tCase.result["*"]) > 0 {

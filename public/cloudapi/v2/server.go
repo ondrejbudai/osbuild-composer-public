@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,9 +24,9 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/container"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
 	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
+	"github.com/ondrejbudai/osbuild-composer-public/public/manifest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
 	"github.com/ondrejbudai/osbuild-composer-public/public/prometheus"
-	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker/clienterrors"
@@ -107,21 +108,13 @@ func (s *Server) enqueueCompose(distribution distro.Distro, bp blueprint.Bluepri
 	}
 	ir := irs[0]
 
-	// NOTE(akoutsou): Image options don't have resolved ostree ref yet, but it
-	// will affect package sets if we don't add it and it's required.  This
-	// used to be done in the old PackageSets() function (which no longer
-	// exists), but now we only need it in the cloud API where things aren't
-	// done in the (new) correct order yet.
-	ir.imageOptions.OSTree = &ostree.ImageOptions{
-		ImageRef: ir.imageType.OSTreeRef(),
-	}
 	manifestSource, _, err := ir.imageType.Manifest(&bp, ir.imageOptions, ir.repositories, manifestSeed)
 	if err != nil {
 		return id, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
 	}
 
 	depsolveJobID, err := s.workers.EnqueueDepsolve(&worker.DepsolveJob{
-		PackageSets:      manifestSource.Content.PackageSets,
+		PackageSets:      manifestSource.GetPackageSetChains(),
 		ModulePlatformID: distribution.ModulePlatformID(),
 		Arch:             ir.arch.Name(),
 		Releasever:       distribution.Releasever(),
@@ -129,51 +122,68 @@ func (s *Server) enqueueCompose(distribution distro.Distro, bp blueprint.Bluepri
 	if err != nil {
 		return id, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
 	}
-
 	dependencies := []uuid.UUID{depsolveJobID}
-	var containerResolveJob uuid.UUID
-	if len(bp.Containers) > 0 {
-		job := worker.ContainerResolveJob{
-			Arch:  ir.arch.Name(),
-			Specs: make([]worker.ContainerSpec, len(bp.Containers)),
-		}
 
-		for i, c := range bp.Containers {
-			job.Specs[i] = worker.ContainerSpec{
-				Source:    c.Source,
-				Name:      c.Name,
-				TLSVerify: c.TLSVerify,
+	var containerResolveJobID uuid.UUID
+	containerSources := manifestSource.GetContainerSourceSpecs()
+	if len(containerSources) > 1 {
+		// only one pipeline can embed containers
+		pipelines := make([]string, 0, len(containerSources))
+		for name := range containerSources {
+			pipelines = append(pipelines, name)
+		}
+		return id, HTTPErrorWithInternal(ErrorEnqueueingJob, fmt.Errorf("manifest returned %d pipelines with containers (at most 1 is supported): %s", len(containerSources), strings.Join(pipelines, ", ")))
+	}
+
+	for _, sources := range containerSources {
+		workerResolveSpecs := make([]worker.ContainerSpec, len(sources))
+		for idx, source := range sources {
+			workerResolveSpecs[idx] = worker.ContainerSpec{
+				Source:    source.Source,
+				Name:      source.Name,
+				TLSVerify: source.TLSVerify,
 			}
 		}
 
-		jobId, err := s.workers.EnqueueContainerResolveJob(&job, channel)
+		job := worker.ContainerResolveJob{
+			Arch:  ir.arch.Name(),
+			Specs: workerResolveSpecs,
+		}
 
+		jobId, err := s.workers.EnqueueContainerResolveJob(&job, channel)
 		if err != nil {
 			return id, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
 		}
 
-		containerResolveJob = jobId
-		dependencies = append(dependencies, jobId)
+		containerResolveJobID = jobId
+		dependencies = append(dependencies, containerResolveJobID)
+		break // there can be only one
 	}
 
 	var ostreeResolveJobID uuid.UUID
-	if ir.ostree != nil {
-		jobID, err := s.workers.EnqueueOSTreeResolveJob(&worker.OSTreeResolveJob{
-			Specs: []worker.OSTreeResolveSpec{
-				{
-					URL:    ir.ostree.URL,
-					Ref:    ir.ostree.Ref,
-					Parent: ir.ostree.Parent,
-					RHSM:   ir.ostree.RHSM,
-				},
-			},
-		}, channel)
+	commitSources := manifestSource.GetOSTreeSourceSpecs()
+	if len(commitSources) > 1 {
+		// only one pipeline can specify an ostree commit for content
+		pipelines := make([]string, 0, len(commitSources))
+		for name := range commitSources {
+			pipelines = append(pipelines, name)
+		}
+		return id, HTTPErrorWithInternal(ErrorEnqueueingJob, fmt.Errorf("manifest returned %d pipelines with ostree commits (at most 1 is supported): %s", len(commitSources), strings.Join(pipelines, ", ")))
+	}
+	for _, sources := range commitSources {
+		workerResolveSpecs := make([]worker.OSTreeResolveSpec, len(sources))
+		for idx, source := range sources {
+			// ostree.SourceSpec is directly convertible to worker.OSTreeResolveSpec
+			workerResolveSpecs[idx] = worker.OSTreeResolveSpec(source)
+		}
+		jobID, err := s.workers.EnqueueOSTreeResolveJob(&worker.OSTreeResolveJob{Specs: workerResolveSpecs}, channel)
 		if err != nil {
 			return id, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
 		}
 
 		ostreeResolveJobID = jobID
 		dependencies = append(dependencies, ostreeResolveJobID)
+		break // there can be only one
 	}
 
 	manifestJobID, err := s.workers.EnqueueManifestJobByID(&worker.ManifestJobByID{}, dependencies, channel)
@@ -194,7 +204,7 @@ func (s *Server) enqueueCompose(distribution distro.Distro, bp blueprint.Bluepri
 
 	s.goroutinesGroup.Add(1)
 	go func() {
-		generateManifest(s.goroutinesCtx, s.workers, depsolveJobID, containerResolveJob, ostreeResolveJobID, manifestJobID, ir.imageType, ir.repositories, ir.imageOptions, manifestSeed, &bp)
+		serializeManifest(s.goroutinesCtx, manifestSource, s.workers, depsolveJobID, containerResolveJobID, ostreeResolveJobID, manifestJobID, manifestSeed)
 		defer s.goroutinesGroup.Done()
 	}()
 
@@ -218,21 +228,13 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 	var kojiFilenames []string
 	var buildIDs []uuid.UUID
 	for _, ir := range irs {
-		// NOTE(akoutsou): Image options don't have resolved ostree ref yet, but it
-		// will affect package sets if we don't add it and it's required.  This
-		// used to be done in the old PackageSets() function (which no longer
-		// exists), but now we only need it in the cloud API where things aren't
-		// done in the (new) correct order yet.
-		ir.imageOptions.OSTree = &ostree.ImageOptions{
-			ImageRef: ir.imageType.OSTreeRef(),
-		}
 		manifestSource, _, err := ir.imageType.Manifest(&bp, ir.imageOptions, ir.repositories, manifestSeed)
 		if err != nil {
 			return id, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
 		}
 
 		depsolveJobID, err := s.workers.EnqueueDepsolve(&worker.DepsolveJob{
-			PackageSets:      manifestSource.Content.PackageSets,
+			PackageSets:      manifestSource.GetPackageSetChains(),
 			ModulePlatformID: distribution.ModulePlatformID(),
 			Arch:             ir.arch.Name(),
 			Releasever:       distribution.Releasever(),
@@ -240,50 +242,68 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 		if err != nil {
 			return id, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
 		}
-
-		var containerResolveJob uuid.UUID
 		dependencies := []uuid.UUID{depsolveJobID}
-		if len(bp.Containers) > 0 {
+
+		var containerResolveJobID uuid.UUID
+		containerSources := manifestSource.GetContainerSourceSpecs()
+		if len(containerSources) > 1 {
+			// only one pipeline can embed containers
+			pipelines := make([]string, 0, len(containerSources))
+			for name := range containerSources {
+				pipelines = append(pipelines, name)
+			}
+			return id, HTTPErrorWithInternal(ErrorEnqueueingJob, fmt.Errorf("manifest returned %d pipelines with containers (at most 1 is supported): %s", len(containerSources), strings.Join(pipelines, ", ")))
+		}
+
+		for _, sources := range containerSources {
+			workerResolveSpecs := make([]worker.ContainerSpec, len(sources))
+			for idx, source := range sources {
+				workerResolveSpecs[idx] = worker.ContainerSpec{
+					Source:    source.Source,
+					Name:      source.Name,
+					TLSVerify: source.TLSVerify,
+				}
+			}
+
 			job := worker.ContainerResolveJob{
 				Arch:  ir.arch.Name(),
 				Specs: make([]worker.ContainerSpec, len(bp.Containers)),
 			}
 
-			for i, c := range bp.Containers {
-				job.Specs[i] = worker.ContainerSpec{
-					Source:    c.Source,
-					Name:      c.Name,
-					TLSVerify: c.TLSVerify,
-				}
-			}
-
 			jobId, err := s.workers.EnqueueContainerResolveJob(&job, channel)
-
 			if err != nil {
 				return id, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
 			}
 
-			containerResolveJob = jobId
-			dependencies = append(dependencies, jobId)
+			containerResolveJobID = jobId
+			dependencies = append(dependencies, containerResolveJobID)
+			break // there can be only one
 		}
 
 		var ostreeResolveJobID uuid.UUID
-		if ir.ostree != nil {
-			jobID, err := s.workers.EnqueueOSTreeResolveJob(&worker.OSTreeResolveJob{
-				Specs: []worker.OSTreeResolveSpec{
-					{
-						URL:    ir.ostree.URL,
-						Ref:    ir.ostree.Ref,
-						Parent: ir.ostree.Parent,
-					},
-				},
-			}, channel)
+		commitSources := manifestSource.GetOSTreeSourceSpecs()
+		if len(commitSources) > 1 {
+			// only one pipeline can specify an ostree commit for content
+			pipelines := make([]string, 0, len(commitSources))
+			for name := range commitSources {
+				pipelines = append(pipelines, name)
+			}
+			return id, HTTPErrorWithInternal(ErrorEnqueueingJob, fmt.Errorf("manifest returned %d pipelines with ostree commits (at most 1 is supported): %s", len(commitSources), strings.Join(pipelines, ", ")))
+		}
+		for _, sources := range commitSources {
+			workerResolveSpecs := make([]worker.OSTreeResolveSpec, len(sources))
+			for idx, source := range sources {
+				// ostree.SourceSpec is directly convertible to worker.OSTreeResolveSpec
+				workerResolveSpecs[idx] = worker.OSTreeResolveSpec(source)
+			}
+			jobID, err := s.workers.EnqueueOSTreeResolveJob(&worker.OSTreeResolveJob{Specs: workerResolveSpecs}, channel)
 			if err != nil {
 				return id, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
 			}
 
 			ostreeResolveJobID = jobID
 			dependencies = append(dependencies, ostreeResolveJobID)
+			break // there can be only one
 		}
 
 		manifestJobID, err := s.workers.EnqueueManifestJobByID(&worker.ManifestJobByID{}, dependencies, channel)
@@ -330,7 +350,7 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 		// copy the image request while passing it into the goroutine to prevent data races
 		s.goroutinesGroup.Add(1)
 		go func(ir imageRequest) {
-			generateManifest(s.goroutinesCtx, s.workers, depsolveJobID, containerResolveJob, ostreeResolveJobID, manifestJobID, ir.imageType, ir.repositories, ir.imageOptions, manifestSeed, &bp)
+			serializeManifest(s.goroutinesCtx, manifestSource, s.workers, depsolveJobID, containerResolveJobID, ostreeResolveJobID, manifestJobID, manifestSeed)
 			defer s.goroutinesGroup.Done()
 		}(ir)
 	}
@@ -351,7 +371,7 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 	return id, nil
 }
 
-func generateManifest(ctx context.Context, workers *worker.Server, depsolveJobID, containerResolveJobID, ostreeResolveJobID, manifestJobID uuid.UUID, imageType distro.ImageType, repos []rpmmd.RepoConfig, options distro.ImageOptions, seed int64, b *blueprint.Blueprint) {
+func serializeManifest(ctx context.Context, manifestSource *manifest.Manifest, workers *worker.Server, depsolveJobID, containerResolveJobID, ostreeResolveJobID, manifestJobID uuid.UUID, seed int64) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute*5)
 	defer cancel()
 
@@ -435,11 +455,10 @@ func generateManifest(ctx context.Context, workers *worker.Server, depsolveJobID
 		return
 	}
 
-	var containerSpecs []container.Spec
+	var containerSpecs map[string][]container.Spec
 	if containerResolveJobID != uuid.Nil {
 		// Container resolve job
 		var result worker.ContainerResolveJobResult
-
 		_, err := workers.ContainerResolveJobInfo(containerResolveJobID, &result)
 
 		if err != nil {
@@ -453,18 +472,33 @@ func generateManifest(ctx context.Context, workers *worker.Server, depsolveJobID
 			return
 		}
 
-		containerSpecs = make([]container.Spec, len(result.Specs))
+		// NOTE: The container resolve job doesn't hold the pipeline name for
+		// the container embedding, so we need to get it from the manifest
+		// content field. There should be only one.
+		var containerEmbedPipeline string
+		for name := range manifestSource.GetContainerSourceSpecs() {
+			containerEmbedPipeline = name
+			break
+		}
 
-		for i, s := range result.Specs {
-			containerSpecs[i].Source = s.Source
-			containerSpecs[i].Digest = s.Digest
-			containerSpecs[i].LocalName = s.Name
-			containerSpecs[i].TLSVerify = s.TLSVerify
-			containerSpecs[i].ImageID = s.ImageID
-			containerSpecs[i].ListDigest = s.ListDigest
+		pipelineSpecs := make([]container.Spec, len(result.Specs))
+		for idx, resultSpec := range result.Specs {
+			pipelineSpecs[idx] = container.Spec{
+				Source:     resultSpec.Source,
+				Digest:     resultSpec.Digest,
+				LocalName:  resultSpec.Name,
+				TLSVerify:  resultSpec.TLSVerify,
+				ImageID:    resultSpec.ImageID,
+				ListDigest: resultSpec.ListDigest,
+			}
+
+		}
+		containerSpecs = map[string][]container.Spec{
+			containerEmbedPipeline: pipelineSpecs,
 		}
 	}
 
+	var ostreeCommitSpecs map[string][]ostree.CommitSpec
 	if ostreeResolveJobID != uuid.Nil {
 		var result worker.OSTreeResolveJobResult
 		_, err := workers.OSTreeResolveJobInfo(ostreeResolveJobID, &result)
@@ -481,33 +515,36 @@ func generateManifest(ctx context.Context, workers *worker.Server, depsolveJobID
 			return
 		}
 
-		options.OSTree = &ostree.ImageOptions{
-			ImageRef:      result.Specs[0].Ref,
-			FetchChecksum: result.Specs[0].Checksum,
-			URL:           result.Specs[0].URL,
+		// NOTE: The ostree resolve job doesn't hold the pipeline name for the
+		// ostree commits, so we need to get it from the manifest content
+		// field. There should be only one.
+		var ostreeCommitPipeline string
+		for name := range manifestSource.GetOSTreeSourceSpecs() {
+			ostreeCommitPipeline = name
+			break
+		}
+
+		commitSpecs := make([]ostree.CommitSpec, len(result.Specs))
+		for idx, resultSpec := range result.Specs {
+			commitSpecs[idx] = ostree.CommitSpec{
+				Ref:      resultSpec.Ref,
+				URL:      resultSpec.URL,
+				Checksum: resultSpec.Checksum,
+			}
+			if resultSpec.RHSM {
+				// NOTE: Older workers don't set the Secrets string in the result
+				// spec so let's add it here for backwards compatibility. This
+				// should be removed after a few versions when all workers have
+				// been updated.
+				resultSpec.Secrets = "org.osbuild.rhsm.consumer"
+			}
+		}
+		ostreeCommitSpecs = map[string][]ostree.CommitSpec{
+			ostreeCommitPipeline: commitSpecs,
 		}
 	}
 
-	manifest, _, err := imageType.Manifest(b, options, repos, seed)
-	if err != nil {
-		reason := "Error generating manifest"
-		jobResult.JobError = clienterrors.WorkerClientError(clienterrors.ErrorManifestGeneration, reason, nil)
-		return
-	}
-
-	// NOTE: This assumes that containers are only embedded in the first
-	// payload pipeline, which is currently true for all image types but might
-	// not necessarily be in the future. This is a workaround required for this
-	// temporary state where the cloud API is not using the new manifest
-	// generation procedure. Once it's updated, the container specs will be
-	// mapped to pipeline names properly by the image type itself.
-	var payloadPipelineName string
-	if pipelineNames := imageType.PayloadPipelines(); len(pipelineNames) > 0 {
-		payloadPipelineName = pipelineNames[0]
-	} else {
-		panic(fmt.Sprintf("ImageType %q does not define payload pipelines - this is a programming error", imageType.Name()))
-	}
-	ms, err := manifest.Serialize(depsolveResults.PackageSpecs, map[string][]container.Spec{payloadPipelineName: containerSpecs})
+	ms, err := manifestSource.Serialize(depsolveResults.PackageSpecs, containerSpecs, ostreeCommitSpecs)
 
 	jobResult.Manifest = ms
 }

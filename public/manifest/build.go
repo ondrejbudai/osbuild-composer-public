@@ -3,6 +3,7 @@ package manifest
 import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/container"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
+	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/runner"
 )
@@ -41,7 +42,7 @@ func (p *Build) addDependent(dep Pipeline) {
 	p.dependents = append(p.dependents, dep)
 }
 
-func (p *Build) getPackageSetChain() []rpmmd.PackageSet {
+func (p *Build) getPackageSetChain(distro Distro) []rpmmd.PackageSet {
 	// TODO: make the /usr/bin/cp dependency conditional
 	// TODO: make the /usr/bin/xz dependency conditional
 	packages := []string{
@@ -53,7 +54,7 @@ func (p *Build) getPackageSetChain() []rpmmd.PackageSet {
 	packages = append(packages, p.runner.GetBuildPackages()...)
 
 	for _, pipeline := range p.dependents {
-		packages = append(packages, pipeline.getBuildPackages()...)
+		packages = append(packages, pipeline.getBuildPackages(distro)...)
 	}
 
 	return []rpmmd.PackageSet{
@@ -68,7 +69,7 @@ func (p *Build) getPackageSpecs() []rpmmd.PackageSpec {
 	return p.packageSpecs
 }
 
-func (p *Build) serializeStart(packages []rpmmd.PackageSpec, _ []container.Spec) {
+func (p *Build) serializeStart(packages []rpmmd.PackageSpec, _ []container.Spec, _ []ostree.CommitSpec) {
 	if len(p.packageSpecs) > 0 {
 		panic("double call to serializeStart()")
 	}

@@ -140,18 +140,22 @@ type OS struct {
 	Environment environment.Environment
 	// Workload to install on top of the base system
 	Workload workload.Workload
-	// Ref of ostree commit, if empty the tree cannot be in an ostree commit
+	// Ref of ostree commit (optional). If empty the tree cannot be in an ostree commit
 	OSTreeRef string
-	// OSTree parent spec, if nil the new commit (if applicable) will have no parent
-	OSTreeParent *ostree.CommitSpec
+	// OSTreeParent source spec (optional). If nil the new commit (if
+	// applicable) will have no parent
+	OSTreeParent *ostree.SourceSpec
 	// Partition table, if nil the tree cannot be put on a partitioned disk
 	PartitionTable *disk.PartitionTable
 
-	repos          []rpmmd.RepoConfig
-	packageSpecs   []rpmmd.PackageSpec
-	containerSpecs []container.Spec
-	platform       platform.Platform
-	kernelVer      string
+	// content-related fields
+	repos            []rpmmd.RepoConfig
+	packageSpecs     []rpmmd.PackageSpec
+	containerSpecs   []container.Spec
+	ostreeParentSpec *ostree.CommitSpec
+
+	platform  platform.Platform
+	kernelVer string
 
 	// NoBLS configures the image bootloader with traditional menu entries
 	// instead of BLS. Required for legacy systems like RHEL 7.
@@ -179,7 +183,7 @@ func NewOS(m *Manifest,
 	return p
 }
 
-func (p *OS) getPackageSetChain() []rpmmd.PackageSet {
+func (p *OS) getPackageSetChain(Distro) []rpmmd.PackageSet {
 	packages := p.platform.GetPackages()
 
 	if p.KernelName != "" {
@@ -247,7 +251,7 @@ func (p *OS) getContainerSources() []container.SourceSpec {
 	return p.OSCustomizations.Containers
 }
 
-func (p *OS) getBuildPackages() []string {
+func (p *OS) getBuildPackages(distro Distro) []string {
 	packages := p.platform.GetBuildPackages()
 	if p.PartitionTable != nil {
 		packages = append(packages, p.PartitionTable.GetBuildPackages()...)
@@ -260,7 +264,12 @@ func (p *OS) getBuildPackages() []string {
 		packages = append(packages, "policycoreutils", fmt.Sprintf("selinux-policy-%s", p.SElinux))
 	}
 	if len(p.CloudInit) > 0 {
-		packages = append(packages, "python3-pyyaml")
+		switch distro {
+		case DISTRO_EL7:
+			packages = append(packages, "python3-PyYAML")
+		default:
+			packages = append(packages, "python3-pyyaml")
+		}
 	}
 	if len(p.DNFConfig) > 0 || len(p.RHSMConfig) > 0 {
 		packages = append(packages, "python3-iniparse")
@@ -268,7 +277,12 @@ func (p *OS) getBuildPackages() []string {
 
 	if len(p.OSCustomizations.Containers) > 0 {
 		if p.OSTreeRef != "" {
-			packages = append(packages, "python3-toml")
+			switch distro {
+			case DISTRO_EL8:
+				packages = append(packages, "python3-pytoml")
+			default:
+				packages = append(packages, "python3-toml")
+			}
 		}
 		packages = append(packages, "skopeo")
 	}
@@ -276,11 +290,21 @@ func (p *OS) getBuildPackages() []string {
 	return packages
 }
 
-func (p *OS) getOSTreeCommits() []ostree.CommitSpec {
+func (p *OS) getOSTreeCommitSources() []ostree.SourceSpec {
 	if p.OSTreeParent == nil {
 		return nil
 	}
-	return []ostree.CommitSpec{*p.OSTreeParent}
+
+	return []ostree.SourceSpec{
+		*p.OSTreeParent,
+	}
+}
+
+func (p *OS) getOSTreeCommits() []ostree.CommitSpec {
+	if p.ostreeParentSpec == nil {
+		return nil
+	}
+	return []ostree.CommitSpec{*p.ostreeParentSpec}
 }
 
 func (p *OS) getPackageSpecs() []rpmmd.PackageSpec {
@@ -291,13 +315,19 @@ func (p *OS) getContainerSpecs() []container.Spec {
 	return p.containerSpecs
 }
 
-func (p *OS) serializeStart(packages []rpmmd.PackageSpec, containers []container.Spec) {
+func (p *OS) serializeStart(packages []rpmmd.PackageSpec, containers []container.Spec, commits []ostree.CommitSpec) {
 	if len(p.packageSpecs) > 0 {
 		panic("double call to serializeStart()")
 	}
 
 	p.packageSpecs = packages
 	p.containerSpecs = containers
+	if len(commits) > 0 {
+		if len(commits) > 1 {
+			panic("pipeline supports at most one ostree commit")
+		}
+		p.ostreeParentSpec = &commits[0]
+	}
 
 	if p.KernelName != "" {
 		p.kernelVer = rpmmd.GetVerStrFromPackageSpecListPanic(p.packageSpecs, p.KernelName)
@@ -311,6 +341,7 @@ func (p *OS) serializeEnd() {
 	p.kernelVer = ""
 	p.packageSpecs = nil
 	p.containerSpecs = nil
+	p.ostreeParentSpec = nil
 }
 
 func (p *OS) serialize() osbuild.Pipeline {
@@ -320,8 +351,8 @@ func (p *OS) serialize() osbuild.Pipeline {
 
 	pipeline := p.Base.serialize()
 
-	if p.OSTreeRef != "" && p.OSTreeParent != nil {
-		pipeline.AddStage(osbuild.NewOSTreePasswdStage("org.osbuild.source", p.OSTreeParent.Checksum))
+	if p.ostreeParentSpec != nil {
+		pipeline.AddStage(osbuild.NewOSTreePasswdStage("org.osbuild.source", p.ostreeParentSpec.Checksum))
 	}
 
 	// collect all repos for this pipeline to create the repository options

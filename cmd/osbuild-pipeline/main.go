@@ -173,17 +173,12 @@ func main() {
 		}
 	}
 
-	if composeRequest.OSTree.Ref == "" {
-		// use default OSTreeRef for image type
-		composeRequest.OSTree.Ref = imageType.OSTreeRef()
-	}
-
 	options := distro.ImageOptions{
 		Size: imageType.Size(0),
 		OSTree: &ostree.ImageOptions{
-			ImageRef:      composeRequest.OSTree.Ref,
-			FetchChecksum: composeRequest.OSTree.Parent,
-			URL:           composeRequest.OSTree.URL,
+			ImageRef:  composeRequest.OSTree.Ref,
+			ParentRef: composeRequest.OSTree.Parent,
+			URL:       composeRequest.OSTree.URL,
 		},
 	}
 
@@ -206,7 +201,7 @@ func main() {
 	}
 
 	depsolvedSets := make(map[string][]rpmmd.PackageSpec)
-	for name, pkgSet := range manifest.Content.PackageSets {
+	for name, pkgSet := range manifest.GetPackageSetChains() {
 		res, err := solver.Depsolve(pkgSet)
 		if err != nil {
 			panic("Could not depsolve: " + err.Error())
@@ -214,13 +209,28 @@ func main() {
 		depsolvedSets[name] = res
 	}
 
-	containers := make(map[string][]container.Spec, len(manifest.Content.Containers))
-	for name, sourceSpecs := range manifest.Content.Containers {
+	containerSources := manifest.GetContainerSourceSpecs()
+	containers := make(map[string][]container.Spec, len(containerSources))
+	for name, sourceSpecs := range containerSources {
 		containerSpecs, err := resolveContainers(sourceSpecs, arch.Name())
 		if err != nil {
 			panic("Could not resolve containers: " + err.Error())
 		}
 		containers[name] = containerSpecs
+	}
+
+	commitSources := manifest.GetOSTreeSourceSpecs()
+	commits := make(map[string][]ostree.CommitSpec, len(commitSources))
+	for name, commitSources := range commitSources {
+		commitSpecs := make([]ostree.CommitSpec, len(commitSources))
+		for idx, commitSource := range commitSources {
+			commitSpec, err := ostree.Resolve(commitSource)
+			if err != nil {
+				panic("Could not resolve ostree commit: " + err.Error())
+			}
+			commitSpecs[idx] = commitSpec
+		}
+		commits[name] = commitSpecs
 	}
 
 	var bytes []byte
@@ -230,12 +240,7 @@ func main() {
 			panic(err)
 		}
 	} else {
-		if composeRequest.OSTree.Ref == "" {
-			// use default OSTreeRef for image type
-			composeRequest.OSTree.Ref = imageType.OSTreeRef()
-		}
-
-		ms, err := manifest.Serialize(depsolvedSets, containers)
+		ms, err := manifest.Serialize(depsolvedSets, containers, commits)
 		if err != nil {
 			panic(err.Error())
 		}

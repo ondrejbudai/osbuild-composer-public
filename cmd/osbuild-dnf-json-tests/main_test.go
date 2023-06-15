@@ -58,15 +58,13 @@ func TestCrossArchDepsolve(t *testing.T) {
 						},
 						distro.ImageOptions{
 							OSTree: &ostree.ImageOptions{
-								URL:           "foo",
-								ImageRef:      "bar",
-								FetchChecksum: "baz",
+								URL: "https://example.com", // required by some image types
 							},
 						},
 						repos[archStr], 0)
 					assert.NoError(t, err)
 
-					for _, set := range manifest.Content.PackageSets {
+					for _, set := range manifest.GetPackageSetChains() {
 						_, err = solver.Depsolve(set)
 						assert.NoError(t, err)
 					}
@@ -103,7 +101,7 @@ func TestDepsolvePackageSets(t *testing.T) {
 
 	manifestSource, _, err := qcow2Image.Manifest(&blueprint.Blueprint{Packages: []blueprint.Package{{Name: "bind"}}}, distro.ImageOptions{}, x86Repos, 0)
 	require.Nilf(t, err, "failed to initialise manifest for %q image type of %q/%q distro/arch", qcow2ImageTypeName, cs9.Name(), platform.ARCH_X86_64.String())
-	imagePkgSets := manifestSource.Content.PackageSets
+	imagePkgSets := manifestSource.GetPackageSetChains()
 
 	gotPackageSpecsSets := make(map[string][]rpmmd.PackageSpec, len(imagePkgSets))
 	for name, pkgSet := range imagePkgSets {

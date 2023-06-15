@@ -252,7 +252,7 @@ func TestImageType_BuildPackages(t *testing.T) {
 					}
 					manifest, _, err := itStruct.Manifest(&blueprint.Blueprint{}, distro.ImageOptions{}, nil, 0)
 					assert.NoError(t, err)
-					buildPkgs := manifest.Content.PackageSets["build"]
+					buildPkgs := manifest.GetPackageSetChains()["build"]
 					assert.NotNil(t, buildPkgs)
 					assert.Len(t, buildPkgs, 1)
 					assert.ElementsMatch(t, buildPackages[archLabel], buildPkgs[0].Include)
@@ -555,6 +555,10 @@ func TestFedora37_Name(t *testing.T) {
 
 func TestFedora37_KernelOption(t *testing.T) {
 	distro_test_common.TestDistro_KernelOption(t, fedora.NewF37())
+}
+
+func TestFedora_OSTreeOptions(t *testing.T) {
+	distro_test_common.TestDistro_OSTreeOptions(t, fedora.NewF37())
 }
 
 func TestDistro_CustomFileSystemManifestError(t *testing.T) {

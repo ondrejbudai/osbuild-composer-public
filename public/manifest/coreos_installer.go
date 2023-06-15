@@ -7,6 +7,7 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/fdo"
 	"github.com/ondrejbudai/osbuild-composer-public/public/ignition"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
+	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
 	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 )
@@ -99,7 +100,7 @@ func (p *CoreOSInstaller) getBootPackages() []string {
 	return packages
 }
 
-func (p *CoreOSInstaller) getBuildPackages() []string {
+func (p *CoreOSInstaller) getBuildPackages(Distro) []string {
 	packages := p.getBootPackages()
 	packages = append(packages,
 		"rpm",
@@ -108,7 +109,7 @@ func (p *CoreOSInstaller) getBuildPackages() []string {
 	return packages
 }
 
-func (p *CoreOSInstaller) getPackageSetChain() []rpmmd.PackageSet {
+func (p *CoreOSInstaller) getPackageSetChain(Distro) []rpmmd.PackageSet {
 	packages := p.getBootPackages()
 	return []rpmmd.PackageSet{
 		{
@@ -122,7 +123,7 @@ func (p *CoreOSInstaller) getPackageSpecs() []rpmmd.PackageSpec {
 	return p.packageSpecs
 }
 
-func (p *CoreOSInstaller) serializeStart(packages []rpmmd.PackageSpec, _ []container.Spec) {
+func (p *CoreOSInstaller) serializeStart(packages []rpmmd.PackageSpec, _ []container.Spec, _ []ostree.CommitSpec) {
 	if len(p.packageSpecs) > 0 {
 		panic("double call to serializeStart()")
 	}
