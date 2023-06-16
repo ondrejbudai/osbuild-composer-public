@@ -182,26 +182,28 @@ $AWS_CMD ec2 create-tags \
 
 # Verify that the image has the correct boot mode set
 AMI_BOOT_MODE=$(jq -r '.Images[].BootMode // empty' "$AMI_DATA")
-case "$ARCH" in
-    aarch64)
-        # aarch64 image supports only uefi boot mode
-        if [[ "$AMI_BOOT_MODE" != "uefi" ]]; then
-            echo "AMI boot mode is not \"uefi\", but \"$AMI_BOOT_MODE\""
+if nvrGreaterOrEqual "osbuild-composer" "83"; then
+    case "$ARCH" in
+        aarch64)
+            # aarch64 image supports only uefi boot mode
+            if [[ "$AMI_BOOT_MODE" != "uefi" ]]; then
+                echo "AMI boot mode is not \"uefi\", but \"$AMI_BOOT_MODE\""
+                exit 1
+            fi
+            ;;
+        x86_64)
+            # x86_64 image supports hybrid boot mode with preference for uefi
+            if [[ "$AMI_BOOT_MODE" != "uefi-preferred" ]]; then
+                echo "AMI boot mode is not \"uefi-preferred\", but \"$AMI_BOOT_MODE\""
+                exit 1
+            fi
+            ;;
+        *)
+            echo "Unsupported architecture: $ARCH"
             exit 1
-        fi
-        ;;
-    x86_64)
-        # x86_64 image supports hybrid boot mode with preference for uefi
-        if [[ "$AMI_BOOT_MODE" != "uefi-preferred" ]]; then
-            echo "AMI boot mode is not \"uefi-preferred\", but \"$AMI_BOOT_MODE\""
-            exit 1
-        fi
-        ;;
-    *)
-        echo "Unsupported architecture: $ARCH"
-        exit 1
-        ;;
-esac
+            ;;
+    esac
+fi
 
 if [[ "$ID" == "fedora" ]]; then
   # fedora uses fedora
@@ -253,19 +255,25 @@ fi
 
 cp "${CIV_CONFIG_FILE}" "${TEMPDIR}/civ_config.yml"
 
-sudo "${CONTAINER_RUNTIME}" run \
-    -a stdout -a stderr \
-    -e AWS_ACCESS_KEY_ID="${V2_AWS_ACCESS_KEY_ID}" \
-    -e AWS_SECRET_ACCESS_KEY="${V2_AWS_SECRET_ACCESS_KEY}" \
-    -e AWS_REGION="${AWS_REGION}" \
-    -e JIRA_PAT="${JIRA_PAT}" \
-    -v "${TEMPDIR}":/tmp:Z \
-    "${CONTAINER_CLOUD_IMAGE_VAL}" \
-    python cloud-image-val.py \
-    -c /tmp/civ_config.yml \
-    && RESULTS=1 || RESULTS=0
+# temporary workaround for
+# https://issues.redhat.com/browse/CLOUDX-488
+if nvrGreaterOrEqual "osbuild-composer" "83"; then
+    sudo "${CONTAINER_RUNTIME}" run \
+        -a stdout -a stderr \
+        -e AWS_ACCESS_KEY_ID="${V2_AWS_ACCESS_KEY_ID}" \
+        -e AWS_SECRET_ACCESS_KEY="${V2_AWS_SECRET_ACCESS_KEY}" \
+        -e AWS_REGION="${AWS_REGION}" \
+        -e JIRA_PAT="${JIRA_PAT}" \
+        -v "${TEMPDIR}":/tmp:Z \
+        "${CONTAINER_CLOUD_IMAGE_VAL}" \
+        python cloud-image-val.py \
+        -c /tmp/civ_config.yml \
+        && RESULTS=1 || RESULTS=0
 
-mv "${TEMPDIR}"/report.html "${ARTIFACTS}"
+    mv "${TEMPDIR}"/report.html "${ARTIFACTS}"
+else
+    RESULTS=1
+fi
 
 # Clean up our mess.
 greenprint "🧼 Cleaning up"

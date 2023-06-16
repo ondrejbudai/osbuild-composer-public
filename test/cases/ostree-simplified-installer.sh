@@ -117,11 +117,11 @@ ANSIBLE_USER="admin"
 FDO_USER_ONBOARDING="false"
 
 case "${ID}-${VERSION_ID}" in
-    "rhel-8.8")
+    "rhel-8"* )
         OSTREE_REF="rhel/8/${ARCH}/edge"
         OS_VARIANT="rhel8-unknown"
         ;;
-    "rhel-9.2")
+    "rhel-9"* )
         OSTREE_REF="rhel/9/${ARCH}/edge"
         OS_VARIANT="rhel9-unknown"
         SYSROOT_RO="true"
@@ -243,6 +243,16 @@ build_image() {
 # Wait for the ssh server up to be.
 wait_for_ssh_up () {
     SSH_STATUS=$(sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@"${1}" '/bin/bash -c "echo -n READY"')
+    if [[ $SSH_STATUS == READY ]]; then
+        echo 1
+    else
+        echo 0
+    fi
+}
+
+# Wait for FDO onboarding finished.
+wait_for_fdo () {
+    SSH_STATUS=$(sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@"${1}" "id -u ${ANSIBLE_USER} > /dev/null 2>&1 && echo -n READY")
     if [[ $SSH_STATUS == READY ]]; then
         echo 1
     else
@@ -656,6 +666,20 @@ for LOOP_COUNTER in $(seq 0 30); do
     sleep 10
 done
 
+# Workaround to fix edge-simplified-installer test failure (ansible runs before fdouser is created)
+# Bug link: https://github.com/osbuild/osbuild-composer/pull/3378#issuecomment-1502633131
+if [[ "${ANSIBLE_USER}" == "fdouser" ]]; then
+    greenprint "Waiting for FDO user onboarding finished"
+    for _ in $(seq 0 30); do
+        RESULTS=$(wait_for_fdo "$PUB_KEY_GUEST_ADDRESS")
+        if [[ $RESULTS == 1 ]]; then
+            echo "FDO user is ready to use! 🥳"
+            break
+        fi
+        sleep 10
+    done
+fi
+
 # With new ostree-libs-2022.6-3, edge vm needs to reboot twice to make the /sysroot readonly
 sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" "admin@${PUB_KEY_GUEST_ADDRESS}" 'nohup sudo systemctl reboot &>/dev/null & exit'
 # Sleep 10 seconds here to make sure vm restarted already
@@ -668,22 +692,6 @@ for _ in $(seq 0 30); do
     fi
     sleep 10
 done
-
-# Workaround to fix edge-simplified-installer test failure (ansible runs before fdouser is created)
-# Bug link: https://github.com/osbuild/osbuild-composer/pull/3378#issuecomment-1502633131
-if [[ "${ANSIBLE_USER}" == "fdouser" ]]; then
-    greenprint "🕹 Check if user 'fdouser' exist in edge vm"
-    for _ in $(seq 0 30); do
-        FDOUSER_EXIST=$(ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@$PUB_KEY_GUEST_ADDRESS "grep fdouser /etc/passwd || true")
-        if [[ ${FDOUSER_EXIST} =~ "fdouser" ]]; then
-            echo "fdouser has been created"
-            break
-        else
-            echo "fdouser has not been created yet"
-            sleep 10
-        fi
-    done
-fi
 
 # Check image installation result
 check_result
