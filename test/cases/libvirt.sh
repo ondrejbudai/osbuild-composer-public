@@ -14,10 +14,9 @@ source /usr/libexec/osbuild-composer-test/set-env-variables.sh
 # Test the images
 /usr/libexec/osbuild-composer-test/libvirt_test.sh qcow2
 
-/usr/libexec/osbuild-composer-test/libvirt_test.sh openstack
-
-# RHEL 8.4+ and Centos Stream 8+ images also supports uefi, check that
-if [[ "$ID" == "rhel" || "$ID" == "centos" ]] ; then
-  echo "🐄 Booting qcow2 image in UEFI mode on RHEL/Centos Stream"
-  /usr/libexec/osbuild-composer-test/libvirt_test.sh qcow2 uefi
+# Fedora's openstack image is an alias of qcow2, we don't need to test it separately
+if [[ "$ID" != "fedora" ]] ; then
+    /usr/libexec/osbuild-composer-test/libvirt_test.sh openstack
 fi
+
+/usr/libexec/osbuild-composer-test/libvirt_test.sh qcow2 uefi

@@ -270,29 +270,33 @@ elif [[ $ARCH == 's390x' ]]; then
         --network network=integration,mac=34:49:22:B0:83:30
 else
     case "${ID}-${VERSION_ID}" in
-        "rhel-8"* | "centos-8")
+        "rhel-8"*)
              # was 1024 before 8.9
-             MIN_RAM="1536"
-             ;;
-        "rhel-9"* | "centos-9")
-             MIN_RAM="1536"
-             ;;
-        *)
-            echo "unsupported distro: ${ID}-${VERSION_ID}"
-            exit 1;;
-    esac
-
-    case "${ID}-${VERSION_ID}" in
-        "rhel-8"* | "centos-8")
-             NVRAM_TEMPLATE="nvram_template=/usr/share/edk2/ovmf/OVMF_VARS.fd"
-             ;;
-        "centos-9" )
-            # Disable secure boot for CS9 due to bug bz#2108646
-            NVRAM_TEMPLATE="firmware.feature0.name=secure-boot,firmware.feature0.enabled=no"
+            MIN_RAM="1536"
+            NVRAM_TEMPLATE="nvram_template=/usr/share/edk2/ovmf/OVMF_VARS.fd"
+            OS_VARIANT="rhel8-unknown"
+            ;;
+        "centos-8")
+            MIN_RAM="1536"
+            NVRAM_TEMPLATE="nvram_template=/usr/share/edk2/ovmf/OVMF_VARS.fd"
+            OS_VARIANT="centos-stream8"
             ;;
         "rhel-9"*)
-             NVRAM_TEMPLATE=""
-             ;;
+            MIN_RAM="1536"
+            NVRAM_TEMPLATE=""
+            OS_VARIANT="rhel9-unknown"
+            ;;
+        "centos-9")
+            MIN_RAM="1536"
+            # Disable secure boot for CS9 due to bug bz#2108646
+            NVRAM_TEMPLATE="firmware.feature0.name=secure-boot,firmware.feature0.enabled=no"
+            OS_VARIANT="centos-stream9"
+            ;;
+        "fedora"*)
+            MIN_RAM="1536"
+            NVRAM_TEMPLATE=""
+            OS_VARIANT="fedora-unknown"
+            ;;
         *)
             echo "unsupported distro: ${ID}-${VERSION_ID}"
             exit 1;;
@@ -307,7 +311,7 @@ else
             --disk path="${LIBVIRT_IMAGE_PATH}" \
             --disk path=${CLOUD_INIT_PATH},device=cdrom \
             --import \
-            --os-variant rhel8-unknown \
+            --os-variant "${OS_VARIANT}" \
             --noautoconsole \
             --boot uefi,"${NVRAM_TEMPLATE}" \
             --network network=integration,mac=34:49:22:B0:83:30
@@ -319,7 +323,7 @@ else
             --disk path="${LIBVIRT_IMAGE_PATH}" \
             --disk path=${CLOUD_INIT_PATH},device=cdrom \
             --import \
-            --os-variant rhel8-unknown \
+            --os-variant "${OS_VARIANT}" \
             --noautoconsole \
             --network network=integration,mac=34:49:22:B0:83:30
     fi
