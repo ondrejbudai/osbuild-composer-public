@@ -172,21 +172,8 @@ func iotCommitPackageSet(t *imageType) rpmmd.PackageSet {
 			"dbus-parsec",
 			"iwl7260-firmware",
 			"iwlax2xx-firmware",
+			"greenboot-default-health-checks",
 		},
-	}
-
-	if common.VersionLessThan(t.arch.distro.osVersion, "36") {
-		ps = ps.Append(rpmmd.PackageSet{
-			Include: []string{
-				"greenboot-grub2",
-				"greenboot-reboot",
-				"greenboot-rpm-ostree-grub2",
-				"greenboot-status",
-			},
-		},
-		)
-	} else {
-		ps = ps.Append(rpmmd.PackageSet{Include: []string{"greenboot-default-health-checks"}})
 	}
 
 	return ps
@@ -309,7 +296,6 @@ func anacondaPackageSet(t *imageType) rpmmd.PackageSet {
 			"libreport-plugin-reportuploader",
 			"librsvg2",
 			"linux-firmware",
-			"lklug-fonts",
 			"lldpad",
 			"lohit-assamese-fonts",
 			"lohit-bengali-fonts",
@@ -339,6 +325,7 @@ func anacondaPackageSet(t *imageType) rpmmd.PackageSet {
 			"plymouth",
 			"python3-pyatspi",
 			"rdma-core",
+			"rit-meera-new-fonts",
 			"rng-tools",
 			"rpcbind",
 			"rpm-ostree",
@@ -348,6 +335,7 @@ func anacondaPackageSet(t *imageType) rpmmd.PackageSet {
 			"sg3_utils",
 			"sil-abyssinica-fonts",
 			"sil-padauk-fonts",
+			"sil-scheherazade-new-fonts",
 			"smartmontools",
 			"spice-vdagent",
 			"strace",
@@ -374,18 +362,10 @@ func anacondaPackageSet(t *imageType) rpmmd.PackageSet {
 		},
 	})
 
-	if common.VersionLessThan(t.arch.distro.osVersion, "37") {
+	if common.VersionLessThan(t.arch.distro.osVersion, "39") {
 		ps = ps.Append(rpmmd.PackageSet{
 			Include: []string{
-				"smc-meera-fonts",
-				"sil-scheherazade-fonts",
-			},
-		})
-	} else {
-		ps = ps.Append(rpmmd.PackageSet{
-			Include: []string{
-				"rit-meera-new-fonts",
-				"sil-scheherazade-new-fonts",
+				"lklug-fonts", // orphaned, unavailable in F39
 			},
 		})
 	}
@@ -429,6 +409,47 @@ func iotInstallerPackageSet(t *imageType) rpmmd.PackageSet {
 		ps = ps.Append(rpmmd.PackageSet{
 			Include: []string{
 				"fedora-release-iot",
+			},
+		})
+	}
+
+	return ps
+}
+
+func liveInstallerPackageSet(t *imageType) rpmmd.PackageSet {
+	ps := rpmmd.PackageSet{
+		Include: []string{
+			"@workstation-product-environment",
+			"@anaconda-tools",
+			"anaconda-install-env-deps",
+			"anaconda-live",
+			"anaconda-dracut",
+			"dracut-live",
+			"glibc-all-langpacks",
+			"kernel",
+			"kernel-modules",
+			"kernel-modules-extra",
+			"livesys-scripts",
+			"rng-tools",
+			"rdma-core",
+			"gnome-kiosk",
+		},
+		Exclude: []string{
+			"@dial-up",
+			"@input-methods",
+			"@standard",
+			"device-mapper-multipath",
+			"fcoe-utils",
+			"gfs2-utils",
+			"reiserfs-utils",
+		},
+	}
+
+	// We want to generate a preview image when rawhide is built
+	if !common.VersionLessThan(t.arch.distro.osVersion, "39") {
+		ps = ps.Append(rpmmd.PackageSet{
+			Include: []string{
+				"anaconda-webui",
 			},
 		})
 	}
