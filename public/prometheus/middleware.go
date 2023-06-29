@@ -7,6 +7,8 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/ondrejbudai/osbuild-composer-public/public/auth"
 )
 
 func MetricsMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
@@ -15,9 +17,20 @@ func MetricsMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 		if strings.HasSuffix(ctx.Path(), "/compose") {
 			ComposeRequests.Inc()
 		}
-		timer := prometheus.NewTimer(httpDuration.WithLabelValues(ctx.Path()))
-		defer timer.ObserveDuration()
 		return next(ctx)
+	}
+}
+
+func HTTPDurationMiddleware(subsystem string) func(next echo.HandlerFunc) echo.HandlerFunc {
+	histogram := HTTPDurationHisto(subsystem)
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(ctx echo.Context) error {
+			// leave tenant empty in case it's not in the context
+			tenant, _ := ctx.Get(auth.TenantCtxKey).(string)
+			timer := prometheus.NewTimer(histogram.WithLabelValues(ctx.Path(), tenant))
+			defer timer.ObserveDuration()
+			return next(ctx)
+		}
 	}
 }
 
@@ -35,6 +48,8 @@ func StatusMiddleware(subsystem string) func(next echo.HandlerFunc) echo.Handler
 			path := pathLabel(ctx.Path())
 			method := ctx.Request().Method
 			status := ctx.Response().Status
+			// leave tenant empty in case it's not in the context
+			tenant, _ := ctx.Get(auth.TenantCtxKey).(string)
 
 			httpErr := new(echo.HTTPError)
 			if errors.As(err, &httpErr) {
@@ -46,6 +61,7 @@ func StatusMiddleware(subsystem string) func(next echo.HandlerFunc) echo.Handler
 				path,
 				strconv.Itoa(status),
 				subsystem,
+				tenant,
 			).Inc()
 
 			return err
