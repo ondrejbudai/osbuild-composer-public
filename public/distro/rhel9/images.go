@@ -13,6 +13,7 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/image"
 	"github.com/ondrejbudai/osbuild-composer-public/public/manifest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
+	"github.com/ondrejbudai/osbuild-composer-public/public/oscap"
 	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
 	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/users"
@@ -133,9 +134,13 @@ func osCustomizations(
 		if t.rpmOstree {
 			panic("unexpected oscap options for ostree image type")
 		}
+		var datastream = oscapConfig.DataStream
+		if datastream == "" {
+			datastream = oscap.DefaultRHEL9Datastream(t.arch.distro.isRHEL())
+		}
 		osc.OpenSCAPConfig = osbuild.NewOscapRemediationStageOptions(
 			osbuild.OscapConfig{
-				Datastream: oscapConfig.DataStream,
+				Datastream: datastream,
 				ProfileID:  oscapConfig.ProfileID,
 			},
 		)
