@@ -31,17 +31,17 @@ import (
 	"github.com/julienschmidt/httprouter"
 	"github.com/ondrejbudai/osbuild-composer-public/pkg/jobqueue"
 
+	"github.com/osbuild/images/pkg/container"
+	"github.com/osbuild/images/pkg/distro"
+	"github.com/osbuild/images/pkg/distroregistry"
+	"github.com/osbuild/images/pkg/osbuild"
+	"github.com/osbuild/images/pkg/ostree"
+	"github.com/osbuild/images/pkg/rhsm/facts"
+	"github.com/osbuild/images/pkg/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
-	"github.com/ondrejbudai/osbuild-composer-public/public/container"
-	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
-	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
 	"github.com/ondrejbudai/osbuild-composer-public/public/dnfjson"
-	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
-	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
 	"github.com/ondrejbudai/osbuild-composer-public/public/reporegistry"
-	"github.com/ondrejbudai/osbuild-composer-public/public/rhsm/facts"
-	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/store"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"
@@ -2503,7 +2503,8 @@ func (api *API) composeHandler(writer http.ResponseWriter, request *http.Request
 		return
 	}
 
-	manifest, warnings, err := imageType.Manifest(bp, options, imageRepos, seed)
+	ibp := blueprint.Convert(*bp)
+	manifest, warnings, err := imageType.Manifest(&ibp, options, imageRepos, seed)
 	if err != nil {
 		errors := responseError{
 			ID:  "ManifestCreationFailed",

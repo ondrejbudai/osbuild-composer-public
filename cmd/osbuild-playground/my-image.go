@@ -3,12 +3,12 @@ package main
 import (
 	"math/rand"
 
-	"github.com/ondrejbudai/osbuild-composer-public/public/artifact"
-	"github.com/ondrejbudai/osbuild-composer-public/public/disk"
-	"github.com/ondrejbudai/osbuild-composer-public/public/manifest"
-	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
-	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
-	"github.com/ondrejbudai/osbuild-composer-public/public/runner"
+	"github.com/osbuild/images/pkg/artifact"
+	"github.com/osbuild/images/pkg/disk"
+	"github.com/osbuild/images/pkg/manifest"
+	"github.com/osbuild/images/pkg/platform"
+	"github.com/osbuild/images/pkg/rpmmd"
+	"github.com/osbuild/images/pkg/runner"
 )
 
 type MyImage struct {

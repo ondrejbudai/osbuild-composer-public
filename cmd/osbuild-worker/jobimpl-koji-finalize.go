@@ -7,8 +7,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
-	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
+	"github.com/osbuild/images/pkg/osbuild"
+	"github.com/osbuild/images/pkg/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/koji"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"

@@ -16,13 +16,13 @@ import (
 
 	"github.com/ondrejbudai/osbuild-composer-public/pkg/jobqueue"
 
-	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
-	"github.com/ondrejbudai/osbuild-composer-public/public/distro/test_distro"
+	"github.com/osbuild/images/pkg/distro"
+	"github.com/osbuild/images/pkg/distro/test_distro"
+	"github.com/osbuild/images/pkg/manifest"
+	"github.com/osbuild/images/pkg/osbuild"
+	"github.com/osbuild/images/pkg/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/jobqueue/fsjobqueue"
-	"github.com/ondrejbudai/osbuild-composer-public/public/manifest"
-	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
 	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
-	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 	"github.com/ondrejbudai/osbuild-composer-public/public/test"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"

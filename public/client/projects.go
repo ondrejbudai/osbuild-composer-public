@@ -8,7 +8,7 @@ import (
 	"net/http"
 	//	"strings"
 
-	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
+	"github.com/osbuild/images/pkg/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/weldr"
 )
 

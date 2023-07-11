@@ -11,9 +11,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/osbuild/images/pkg/distro/test_distro"
+	"github.com/osbuild/images/pkg/osbuild"
 	v2 "github.com/ondrejbudai/osbuild-composer-public/public/cloudapi/v2"
-	"github.com/ondrejbudai/osbuild-composer-public/public/distro/test_distro"
-	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 	"github.com/ondrejbudai/osbuild-composer-public/public/test"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"

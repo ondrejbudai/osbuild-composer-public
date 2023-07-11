@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ondrejbudai/osbuild-composer-public/public/distro/distro_test_common"
-	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
+	"github.com/osbuild/images/pkg/distro/distro_test_common"
+	"github.com/osbuild/images/pkg/distroregistry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

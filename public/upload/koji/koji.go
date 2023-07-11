@@ -25,7 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/ubccr/kerby/khttp"
 
-	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
+	"github.com/osbuild/images/pkg/rpmmd"
 )
 
 type Koji struct {

@@ -8,11 +8,11 @@ import (
 	"os"
 	"path"
 
+	"github.com/osbuild/images/pkg/distro"
+	"github.com/osbuild/images/pkg/distroregistry"
+	"github.com/osbuild/images/pkg/image"
+	"github.com/osbuild/images/pkg/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
-	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
-	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
-	"github.com/ondrejbudai/osbuild-composer-public/public/image"
-	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 )
 
 var ImageTypes = make(map[string]image.ImageKind)

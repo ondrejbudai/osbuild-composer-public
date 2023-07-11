@@ -17,14 +17,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
+	"github.com/osbuild/images/pkg/distro"
+	"github.com/osbuild/images/pkg/manifest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/jsondb"
-	"github.com/ondrejbudai/osbuild-composer-public/public/manifest"
 
+	"github.com/osbuild/images/pkg/distroregistry"
+	"github.com/osbuild/images/pkg/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
-	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
-	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 
 	"github.com/google/uuid"

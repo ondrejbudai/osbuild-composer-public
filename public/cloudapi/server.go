@@ -3,7 +3,7 @@ package cloudapi
 import (
 	"net/http"
 
-	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
+	"github.com/osbuild/images/pkg/distroregistry"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"
 
 	v2 "github.com/ondrejbudai/osbuild-composer-public/public/cloudapi/v2"

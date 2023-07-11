@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/osbuild/images/pkg/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/mocks/rpmrepo"
-	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/stretchr/testify/assert"
 )
 

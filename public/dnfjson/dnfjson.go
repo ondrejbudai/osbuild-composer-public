@@ -25,8 +25,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ondrejbudai/osbuild-composer-public/public/rhsm"
-	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
+	"github.com/osbuild/images/pkg/rhsm"
+	"github.com/osbuild/images/pkg/rpmmd"
 )
 
 // BaseSolver defines the basic solver configuration without platform

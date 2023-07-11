@@ -8,10 +8,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
-	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
-	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
-	"github.com/ondrejbudai/osbuild-composer-public/public/ostree"
+	"github.com/osbuild/images/pkg/distro"
+	"github.com/osbuild/images/pkg/distroregistry"
+	"github.com/osbuild/images/pkg/ostree"
 )
 
 func main() {
@@ -53,7 +52,7 @@ func main() {
 			URL: "https://example.com", // required by some image types
 		},
 	}
-	manifest, _, err := image.Manifest(&blueprint.Blueprint{}, options, nil, 0)
+	manifest, _, err := image.Manifest(nil, options, nil, 0)
 	if err != nil {
 		panic(err)
 	}

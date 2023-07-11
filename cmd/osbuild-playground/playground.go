@@ -6,12 +6,12 @@ import (
 	"os"
 	"path"
 
-	"github.com/ondrejbudai/osbuild-composer-public/public/distro"
+	"github.com/osbuild/images/pkg/distro"
+	"github.com/osbuild/images/pkg/image"
+	"github.com/osbuild/images/pkg/manifest"
+	"github.com/osbuild/images/pkg/osbuild"
+	"github.com/osbuild/images/pkg/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/dnfjson"
-	"github.com/ondrejbudai/osbuild-composer-public/public/image"
-	"github.com/ondrejbudai/osbuild-composer-public/public/manifest"
-	"github.com/ondrejbudai/osbuild-composer-public/public/osbuild"
-	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/runner"
 )
 

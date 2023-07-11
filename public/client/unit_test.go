@@ -16,13 +16,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ondrejbudai/osbuild-composer-public/public/distro/test_distro"
-	"github.com/ondrejbudai/osbuild-composer-public/public/distroregistry"
+	"github.com/osbuild/images/pkg/distro/test_distro"
+	"github.com/osbuild/images/pkg/distroregistry"
+	"github.com/osbuild/images/pkg/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/dnfjson"
 	dnfjson_mock "github.com/ondrejbudai/osbuild-composer-public/public/mocks/dnfjson"
 	rpmmd_mock "github.com/ondrejbudai/osbuild-composer-public/public/mocks/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/reporegistry"
-	"github.com/ondrejbudai/osbuild-composer-public/public/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/weldr"
 )
 
