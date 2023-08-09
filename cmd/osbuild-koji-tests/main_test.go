@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/osbuild/images/pkg/distro"
 	"github.com/osbuild/images/pkg/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/koji"
 )
@@ -141,7 +142,7 @@ func TestKojiImport(t *testing.T) {
 	require.NoError(t, err)
 
 	// Import the build
-	build := koji.ImageBuild{
+	build := koji.Build{
 		TaskID:    1,
 		Name:      buildName,
 		Version:   "1",
@@ -168,19 +169,20 @@ func TestKojiImport(t *testing.T) {
 			RPMs:  []rpmmd.RPM{},
 		},
 	}
-	output := []koji.Image{
+	output := []koji.BuildOutput{
 		{
 			BuildRootID:  1,
 			Filename:     filename,
 			FileSize:     uint64(filesize),
 			Arch:         "noarch",
-			ChecksumType: "md5",
-			MD5:          hash,
-			Type:         "image",
+			ChecksumType: koji.ChecksumTypeMD5,
+			Checksum:     hash,
+			Type:         koji.BuildOutputTypeImage,
 			RPMs:         []rpmmd.RPM{},
-			Extra: koji.ImageExtra{
-				Info: koji.ImageExtraInfo{
-					Arch: "noarch",
+			Extra: koji.BuildOutputExtra{
+				Image: koji.ImageExtraInfo{
+					Arch:     "noarch",
+					BootMode: distro.BOOT_LEGACY.String(),
 				},
 			},
 		},

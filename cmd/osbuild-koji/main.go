@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/osbuild/images/pkg/distro"
 	"github.com/osbuild/images/pkg/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/koji"
 	"github.com/sirupsen/logrus"
@@ -60,7 +61,7 @@ func main() {
 		return
 	}
 
-	build := koji.ImageBuild{
+	build := koji.Build{
 		TaskID:    uint64(taskID),
 		Name:      name,
 		Version:   version,
@@ -87,19 +88,20 @@ func main() {
 			RPMs:  []rpmmd.RPM{},
 		},
 	}
-	output := []koji.Image{
+	output := []koji.BuildOutput{
 		{
 			BuildRootID:  1,
 			Filename:     path.Base(filename),
 			FileSize:     length,
 			Arch:         arch,
-			ChecksumType: "md5",
-			MD5:          hash,
-			Type:         "image",
+			ChecksumType: koji.ChecksumTypeMD5,
+			Checksum:     hash,
+			Type:         koji.BuildOutputTypeImage,
 			RPMs:         []rpmmd.RPM{},
-			Extra: koji.ImageExtra{
-				Info: koji.ImageExtraInfo{
-					Arch: arch,
+			Extra: koji.BuildOutputExtra{
+				Image: koji.ImageExtraInfo{
+					Arch:     arch,
+					BootMode: distro.BOOT_NONE.String(), // TODO: put the correct boot mode here
 				},
 			},
 		},
