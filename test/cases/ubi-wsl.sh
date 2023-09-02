@@ -190,7 +190,6 @@ $AZURE_CMD vm create \
    --resource-group "$AZURE_RESOURCE_GROUP" \
    --name "wsl-vm-$TEST_ID" \
    --attach-os-disk "$AZ_DISK" \
-   --os-type "windows" \
    --security-type "TrustedLaunch" \
    --public-ip-sku Standard \
    --location "$AZURE_WSL_LOCATION" \
@@ -211,7 +210,7 @@ for LOOP_COUNTER in {0..30}; do
     if echo "$HOST" | grep -Eq "^([0-9]{1,3}[\.]){3}[0-9]{1,3}$"; then
         break
     fi
-    if [ "$LOOP_COUNTER" = "10" ]; then
+    if [ "$LOOP_COUNTER" = "30" ]; then
         redprint "👻 the VM wasn't assigned a valid ipv4 address"
         exit 1
     fi
