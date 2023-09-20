@@ -5,12 +5,6 @@
 # uploading it to the appropriate cloud provider. The test currently supports
 # AWS and GCP.
 #
-# This script sets `-x` and is meant to always be run like that. This is
-# simpler than adding extensive error reporting, which would make this script
-# considerably more complex. Also, the full trace this produces is very useful
-# for the primary audience: developers of osbuild-composer looking at the log
-# from a run on a remote continuous integration system.
-#
 
 #
 # Cloud provider / target names
@@ -22,6 +16,7 @@ CLOUD_PROVIDER_AZURE="azure"
 CLOUD_PROVIDER_AWS_S3="aws.s3"
 CLOUD_PROVIDER_GENERIC_S3="generic.s3"
 CLOUD_PROVIDER_CONTAINER_IMAGE_REGISTRY="container"
+CLOUD_PROVIDER_OCI="oci"
 
 #
 # Supported Image type names
@@ -34,6 +29,7 @@ export IMAGE_TYPE_EDGE_INSTALLER="edge-installer"
 export IMAGE_TYPE_GCP="gcp"
 export IMAGE_TYPE_IMAGE_INSTALLER="image-installer"
 export IMAGE_TYPE_GUEST="guest-image"
+export IMAGE_TYPE_OCI="oci"
 export IMAGE_TYPE_VSPHERE="vsphere"
 export IMAGE_TYPE_IOT_COMMIT="iot-commit"
 
@@ -47,7 +43,7 @@ if (( $# == 0 )); then
     exit 1
 fi
 
-set -euxo pipefail
+set -euo pipefail
 
 IMAGE_TYPE="$1"
 
@@ -66,6 +62,9 @@ case ${IMAGE_TYPE} in
         ;;
     "$IMAGE_TYPE_EDGE_CONTAINER")
         CLOUD_PROVIDER="${CLOUD_PROVIDER_CONTAINER_IMAGE_REGISTRY}"
+        ;;
+    "$IMAGE_TYPE_OCI")
+        CLOUD_PROVIDER="${CLOUD_PROVIDER_OCI}"
         ;;
     "$IMAGE_TYPE_EDGE_COMMIT"|"$IMAGE_TYPE_IOT_COMMIT"|"$IMAGE_TYPE_EDGE_INSTALLER"|"$IMAGE_TYPE_IMAGE_INSTALLER"|"$IMAGE_TYPE_GUEST"|"$IMAGE_TYPE_VSPHERE")
         # blobby image types: upload to s3 and provide download link
@@ -176,6 +175,9 @@ case $CLOUD_PROVIDER in
   "$CLOUD_PROVIDER_AZURE")
     source /usr/libexec/tests/osbuild-composer/api/azure.sh
     ;;
+  "$CLOUD_PROVIDER_OCI")
+    source /usr/libexec/tests/osbuild-composer/api/oci.sh
+    ;;
   "$CLOUD_PROVIDER_CONTAINER_IMAGE_REGISTRY")
     source /usr/libexec/tests/osbuild-composer/api/container.registry.sh
     ;;
@@ -190,13 +192,9 @@ checkEnv
 [[ "$ID" == "rhel" ]] && printenv API_TEST_SUBSCRIPTION_ORG_ID API_TEST_SUBSCRIPTION_ACTIVATION_KEY_V2 > /dev/null
 
 function dump_db() {
-  # Disable -x for these commands to avoid printing the whole result and manifest into the log
-  set +x
-
   # Save the result, including the manifest, for the job, straight from the db
   sudo "${CONTAINER_RUNTIME}" exec "${DB_CONTAINER_NAME}" psql -U postgres -d osbuildcomposer -c "SELECT result FROM jobs WHERE type='manifest-id-only'" \
     | sudo tee "${ARTIFACTS}/build-result.txt"
-  set -x
 }
 
 WORKDIR=$(mktemp -d)
@@ -598,6 +596,9 @@ test "$UPLOAD_STATUS" = "success"
 EXPECTED_UPLOAD_TYPE="$CLOUD_PROVIDER"
 if [ "${CLOUD_PROVIDER}" == "${CLOUD_PROVIDER_GENERIC_S3}" ]; then
   EXPECTED_UPLOAD_TYPE="${CLOUD_PROVIDER_AWS_S3}"
+fi
+if [ "${CLOUD_PROVIDER}" == "${CLOUD_PROVIDER_OCI}" ]; then
+    EXPECTED_UPLOAD_TYPE="oci.objectstorage"
 fi
 test "$UPLOAD_TYPE" = "$EXPECTED_UPLOAD_TYPE"
 test $((INIT_COMPOSES+1)) = "$SUBS_COMPOSES"
