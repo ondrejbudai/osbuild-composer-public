@@ -3,6 +3,7 @@ package weldr
 import (
 	"archive/tar"
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/osbuild/images/pkg/container"
 	"github.com/osbuild/images/pkg/distro"
 	"github.com/osbuild/images/pkg/distro/test_distro"
 	"github.com/osbuild/images/pkg/distroregistry"
@@ -81,7 +83,7 @@ func createWeldrAPI(tempdir string, fixtureGenerator rpmmd_mock.FixtureGenerator
 	if err != nil {
 		panic(err)
 	}
-	distro2 := test_distro.New2()
+	distro2 := test_distro.NewTestDistro("test-distro-2", "platform:test-2", "2")
 
 	dr, err := distroregistry.New(distro1, distro1, distro2)
 	if err != nil {
@@ -130,7 +132,7 @@ func createWeldrAPI2(tempdir string, fixtureGenerator rpmmd_mock.FixtureGenerato
 	if err != nil {
 		panic(err)
 	}
-	distro2 := test_distro.New2()
+	distro2 := test_distro.NewTestDistro("test-distro-2", "platform:test-2", "2")
 
 	dr, err := distroregistry.New(distro1, distro2)
 	if err != nil {
@@ -147,6 +149,45 @@ func createWeldrAPI2(tempdir string, fixtureGenerator rpmmd_mock.FixtureGenerato
 	respfile := fixture.ResponseGenerator(dspath)
 	solver.SetDNFJSONPath(dnfjsonPath, respfile)
 	return NewTestAPI(solver, arch, dr, rr, nil, fixture.Store, fixture.Workers, "", distroImageTypeDenylist), fixture.Store
+}
+
+// ResolveContent transforms content source specs into resolved specs for serialization.
+// For packages, it uses the dnfjson_mock.BaseDeps() every time, but retains
+// the map keys from the input.
+// For ostree commits it hashes the URL+Ref to create a checksum.
+func ResolveContent(pkgs map[string][]rpmmd.PackageSet, containers map[string][]container.SourceSpec, commits map[string][]ostree.SourceSpec) (map[string][]rpmmd.PackageSpec, map[string][]container.Spec, map[string][]ostree.CommitSpec) {
+
+	pkgSpecs := make(map[string][]rpmmd.PackageSpec, len(pkgs))
+	for name := range pkgs {
+		pkgSpecs[name] = dnfjson_mock.BaseDeps()
+	}
+
+	containerSpecs := make(map[string][]container.Spec, len(containers))
+	for name := range containers {
+		containerSpecs[name] = make([]container.Spec, len(containers[name]))
+		for idx := range containers[name] {
+			containerSpecs[name][idx] = container.Spec{
+				Source:    containers[name][idx].Source,
+				TLSVerify: containers[name][idx].TLSVerify,
+				LocalName: containers[name][idx].Name,
+			}
+		}
+	}
+
+	commitSpecs := make(map[string][]ostree.CommitSpec, len(commits))
+	for name := range commits {
+		commitSpecs[name] = make([]ostree.CommitSpec, len(commits[name]))
+		for idx := range commits[name] {
+			commitSpecs[name][idx] = ostree.CommitSpec{
+				Ref:      commits[name][idx].Ref,
+				URL:      commits[name][idx].URL,
+				Checksum: fmt.Sprintf("%x", sha256.Sum256([]byte(commits[name][idx].URL+commits[name][idx].Ref))),
+			}
+			fmt.Printf("Test distro spec: %+v\n", commitSpecs[name][idx])
+		}
+	}
+
+	return pkgSpecs, containerSpecs, commitSpecs
 }
 
 func TestBasic(t *testing.T) {
@@ -894,7 +935,7 @@ func TestCompose(t *testing.T) {
 	manifest, _, err := imgType.Manifest(nil, distro.ImageOptions{}, nil, 0)
 	require.NoError(t, err)
 
-	rPkgs, rContainers, rCommits := test_distro.ResolveContent(manifest.GetPackageSetChains(), manifest.GetContainerSourceSpecs(), manifest.GetOSTreeSourceSpecs())
+	rPkgs, rContainers, rCommits := ResolveContent(manifest.GetPackageSetChains(), manifest.GetContainerSourceSpecs(), manifest.GetOSTreeSourceSpecs())
 
 	mf, err := manifest.Serialize(rPkgs, rContainers, rCommits)
 	require.NoError(t, err)
@@ -905,7 +946,7 @@ func TestCompose(t *testing.T) {
 	ostreeManifest, _, err := ostreeImgType.Manifest(nil, distro.ImageOptions{OSTree: &ostreeOptions}, nil, 0)
 	require.NoError(t, err)
 
-	rPkgs, rContainers, rCommits = test_distro.ResolveContent(ostreeManifest.GetPackageSetChains(), ostreeManifest.GetContainerSourceSpecs(), ostreeManifest.GetOSTreeSourceSpecs())
+	rPkgs, rContainers, rCommits = ResolveContent(ostreeManifest.GetPackageSetChains(), ostreeManifest.GetContainerSourceSpecs(), ostreeManifest.GetOSTreeSourceSpecs())
 
 	omf, err := ostreeManifest.Serialize(rPkgs, rContainers, rCommits)
 	require.NoError(t, err)
@@ -1016,7 +1057,7 @@ func TestCompose(t *testing.T) {
 	ostreeManifestOther, _, err := ostreeImgType.Manifest(nil, distro.ImageOptions{OSTree: &ostreeOptionsOther}, nil, 0)
 	require.NoError(t, err)
 
-	rPkgs, rContainers, rCommits = test_distro.ResolveContent(ostreeManifestOther.GetPackageSetChains(), ostreeManifestOther.GetContainerSourceSpecs(), ostreeManifestOther.GetOSTreeSourceSpecs())
+	rPkgs, rContainers, rCommits = ResolveContent(ostreeManifestOther.GetPackageSetChains(), ostreeManifestOther.GetContainerSourceSpecs(), ostreeManifestOther.GetOSTreeSourceSpecs())
 
 	omfo, err := ostreeManifest.Serialize(rPkgs, rContainers, rCommits)
 	require.NoError(t, err)
@@ -1050,14 +1091,15 @@ func TestCompose(t *testing.T) {
 	}
 
 	// For 2nd distribution
-	arch2, err := test_distro.New2().GetArch(test_distro.TestArchName)
+	distro2 := test_distro.NewTestDistro("test-distro-2", "platform:test-2", "2")
+	arch2, err := distro2.GetArch(test_distro.TestArchName)
 	require.NoError(t, err)
 	imgType2, err := arch2.GetImageType(test_distro.TestImageTypeName)
 	require.NoError(t, err)
 	manifest2, _, err := imgType.Manifest(nil, distro.ImageOptions{}, nil, 0)
 	require.NoError(t, err)
 
-	rPkgs, rContainers, rCommits = test_distro.ResolveContent(manifest2.GetPackageSetChains(), manifest2.GetContainerSourceSpecs(), manifest2.GetOSTreeSourceSpecs())
+	rPkgs, rContainers, rCommits = ResolveContent(manifest2.GetPackageSetChains(), manifest2.GetContainerSourceSpecs(), manifest2.GetOSTreeSourceSpecs())
 	mf2, err := manifest2.Serialize(rPkgs, rContainers, rCommits)
 	require.NoError(t, err)
 
@@ -1845,8 +1887,8 @@ func TestProjectsDepsolve(t *testing.T) {
 		ExpectedJSON   string
 	}{
 		{rpmmd_mock.NonExistingPackage, "/api/v0/projects/depsolve/fash", http.StatusBadRequest, `{"status":false,"errors":[{"id":"ProjectsError","msg":"BadRequest: DNF error occurred: MarkingErrors: Error occurred when marking packages for installation: Problems in request:\nmissing packages: fash"}]}`},
-		{rpmmd_mock.BaseFixture, "/api/v0/projects/depsolve/fish", http.StatusOK, `{"projects":[{"name":"dep-package3","epoch":7,"version":"3.0.3","release":"1.fc30","arch":"x86_64","check_gpg":true},{"name":"dep-package1","epoch":0,"version":"1.33","release":"2.fc30","arch":"x86_64","check_gpg":true},{"name":"dep-package2","epoch":0,"version":"2.9","release":"1.fc30","arch":"x86_64","check_gpg":true}]}`},
-		{rpmmd_mock.BaseFixture, "/api/v0/projects/depsolve/fish?distro=test-distro-2", http.StatusOK, `{"projects":[{"name":"dep-package3","epoch":7,"version":"3.0.3","release":"1.fc30","arch":"x86_64","check_gpg":true},{"name":"dep-package1","epoch":0,"version":"1.33","release":"2.fc30","arch":"x86_64","check_gpg":true},{"name":"dep-package2","epoch":0,"version":"2.9","release":"1.fc30","arch":"x86_64","check_gpg":true}]}`},
+		{rpmmd_mock.BaseFixture, "/api/v0/projects/depsolve/fish", http.StatusOK, `{"projects":[{"name":"dep-package3","epoch":7,"version":"3.0.3","release":"1.fc30","arch":"x86_64","check_gpg":true, "checksum":"sha256:62278d360aa5045eb202af39fe85743a4b5615f0c9c7439a04d75d785db4c720"},{"name":"dep-package1","epoch":0,"version":"1.33","release":"2.fc30","arch":"x86_64","check_gpg":true, "checksum":"sha256:fe3951d112c3b1c84dc8eac57afe0830df72df1ca0096b842f4db5d781189893"},{"name":"dep-package2","epoch":0,"version":"2.9","release":"1.fc30","arch":"x86_64","check_gpg":true, "checksum":"sha256:5797c0b0489681596b5b3cd7165d49870b85b69d65e08770946380a3dcd49ea2"}]}`},
+		{rpmmd_mock.BaseFixture, "/api/v0/projects/depsolve/fish?distro=test-distro-2", http.StatusOK, `{"projects":[{"name":"dep-package3","epoch":7,"version":"3.0.3","release":"1.fc30","arch":"x86_64","check_gpg":true, "checksum":"sha256:62278d360aa5045eb202af39fe85743a4b5615f0c9c7439a04d75d785db4c720"},{"name":"dep-package1","epoch":0,"version":"1.33","release":"2.fc30","arch":"x86_64","check_gpg":true, "checksum":"sha256:fe3951d112c3b1c84dc8eac57afe0830df72df1ca0096b842f4db5d781189893"},{"name":"dep-package2","epoch":0,"version":"2.9","release":"1.fc30","arch":"x86_64","check_gpg":true, "checksum":"sha256:5797c0b0489681596b5b3cd7165d49870b85b69d65e08770946380a3dcd49ea2"}]}`},
 		{rpmmd_mock.BadDepsolve, "/api/v0/projects/depsolve/go2rpm", http.StatusBadRequest, `{"status":false,"errors":[{"id":"ProjectsError","msg":"BadRequest: DNF error occurred: DepsolveError: There was a problem depsolving ['go2rpm']: \n Problem: conflicting requests\n  - nothing provides askalono-cli needed by go2rpm-1-4.fc31.noarch"}]}`},
 		{rpmmd_mock.BaseFixture, "/api/v0/projects/depsolve/fish?distro=fedora-1", http.StatusBadRequest, `{"status":false,"errors":[{"id":"DistroError","msg":"Invalid distro: fedora-1"}]}`},
 	}
@@ -1907,6 +1949,7 @@ func TestModulesInfo(t *testing.T) {
 
 	for _, c := range cases {
 		api, _ := createWeldrAPI(tempdir, c.Fixture)
+		t.Logf("Path = %s", c.Path)
 		test.TestRoute(t, api, true, "GET", c.Path, ``, c.ExpectedStatus, c.ExpectedJSON)
 	}
 }
@@ -2039,7 +2082,8 @@ func TestComposeTypes_ImageTypeDenylist(t *testing.T) {
 }
 
 func TestComposePOST_ImageTypeDenylist(t *testing.T) {
-	arch, err := test_distro.New2().GetArch(test_distro.TestArch2Name)
+	distro2 := test_distro.NewTestDistro("test-distro-2", "platform:test-2", "2")
+	arch, err := distro2.GetArch(test_distro.TestArch2Name)
 	require.NoError(t, err)
 	imgType, err := arch.GetImageType(test_distro.TestImageTypeName)
 	require.NoError(t, err)
@@ -2048,7 +2092,7 @@ func TestComposePOST_ImageTypeDenylist(t *testing.T) {
 	manifest, _, err := imgType.Manifest(nil, distro.ImageOptions{}, nil, 0)
 	require.NoError(t, err)
 
-	rPkgs, rContainers, rCommits := test_distro.ResolveContent(manifest.GetPackageSetChains(), manifest.GetContainerSourceSpecs(), manifest.GetOSTreeSourceSpecs())
+	rPkgs, rContainers, rCommits := ResolveContent(manifest.GetPackageSetChains(), manifest.GetContainerSourceSpecs(), manifest.GetOSTreeSourceSpecs())
 	mf, err := manifest.Serialize(rPkgs, rContainers, rCommits)
 	require.NoError(t, err)
 
