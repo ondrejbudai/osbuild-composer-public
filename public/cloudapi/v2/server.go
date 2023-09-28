@@ -414,6 +414,20 @@ func serializeManifest(ctx context.Context, manifestSource *manifest.Manifest, w
 
 	jobResult := &worker.ManifestJobByIDResult{
 		Manifest: nil,
+		ManifestInfo: worker.ManifestInfo{
+			OSBuildComposerVersion: common.BuildVersion(),
+		},
+	}
+
+	// add osbuild/images dependency info to job result
+	osbuildImagesDep, err := common.GetDepModuleInfoByPath(common.OSBuildImagesModulePath)
+	if err != nil {
+		// do not fail here and just log the error, because the module info is not available in tests.
+		// Failing here would make the unit tests fail. See https://github.com/golang/go/issues/33976
+		logWithId.Errorf("Error getting %s dependency info: %v", common.OSBuildImagesModulePath, err)
+	} else {
+		osbuildImagesDepModule := worker.ComposerDepModuleFromDebugModule(osbuildImagesDep)
+		jobResult.ManifestInfo.OSBuildComposerDeps = append(jobResult.ManifestInfo.OSBuildComposerDeps, osbuildImagesDepModule)
 	}
 
 	defer func() {

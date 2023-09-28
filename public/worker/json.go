@@ -3,6 +3,7 @@ package worker
 import (
 	"encoding/json"
 	"fmt"
+	"runtime/debug"
 
 	"github.com/osbuild/images/pkg/distro"
 	"github.com/osbuild/images/pkg/manifest"
@@ -10,6 +11,7 @@ import (
 	"github.com/osbuild/images/pkg/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker/clienterrors"
+	"golang.org/x/exp/slices"
 )
 
 //
@@ -61,6 +63,8 @@ type OSBuildJobResult struct {
 	// Boot mode supported by the image
 	// (string representation of distro.BootMode values)
 	ImageBootMode string `json:"image_boot_mode,omitempty"`
+	// Version of the osbuild binary used by the worker to build the image
+	OSBuildVersion string `json:"osbuild_version,omitempty"`
 	JobResult
 }
 
@@ -97,6 +101,19 @@ func (j *OSBuildJobResult) TargetResultsByName(name target.TargetName) []*target
 	return targetResults
 }
 
+// TargetResultsFilterByName iterates over TargetResults attached to the Job result and
+// returns a slice of Target results excluding the provided names (types). If there were
+// no TargetResults left after filtering, the returned slice will be empty.
+func (j *OSBuildJobResult) TargetResultsFilterByName(excludeNames []target.TargetName) []*target.TargetResult {
+	targetResults := []*target.TargetResult{}
+	for _, targetResult := range j.TargetResults {
+		if !slices.Contains(excludeNames, targetResult.Name) {
+			targetResults = append(targetResults, targetResult)
+		}
+	}
+	return targetResults
+}
+
 func (j *FileResolveJobResult) ResolutionErrors() []*clienterrors.Error {
 	resolutionErrors := []*clienterrors.Error{}
 
@@ -124,10 +141,11 @@ type KojiInitJobResult struct {
 }
 
 type KojiFinalizeJob struct {
-	Server        string   `json:"server"`
-	Name          string   `json:"name"`
-	Version       string   `json:"version"`
-	Release       string   `json:"release"`
+	Server  string `json:"server"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Release string `json:"release"`
+	// TODO: eventually deprecate and remove KojiFilenames, since the image filenames are now set in the KojiTargetResultOptions.
 	KojiFilenames []string `json:"koji_filenames"`
 	KojiDirectory string   `json:"koji_directory"`
 	TaskID        uint64   `json:"task_id"` /* https://pagure.io/koji/issue/215 */
@@ -250,9 +268,46 @@ type DepsolveJobResult struct {
 
 type ManifestJobByID struct{}
 
+// OSBuildComposerDepModule contains information about a module used by
+// osbuild-composer which could affect the manifest content.
+type OSBuildComposerDepModule struct {
+	Path    string                    `json:"path"`
+	Version string                    `json:"version"`
+	Replace *OSBuildComposerDepModule `json:"replace,omitempty"`
+}
+
+// ComposerDepModuleFromDebugModule converts a debug.Module instance
+// to an OSBuildComposerDepModule instance.
+func ComposerDepModuleFromDebugModule(module *debug.Module) *OSBuildComposerDepModule {
+	if module == nil {
+		return nil
+	}
+	depModule := &OSBuildComposerDepModule{
+		Path:    module.Path,
+		Version: module.Version,
+	}
+	if module.Replace != nil {
+		depModule.Replace = &OSBuildComposerDepModule{
+			Path:    module.Replace.Path,
+			Version: module.Replace.Version,
+		}
+	}
+	return depModule
+}
+
+// ManifestInfo contains information about the environment in which
+// the manifest was produced and which could affect its content.
+type ManifestInfo struct {
+	OSBuildComposerVersion string `json:"osbuild_composer_version"`
+	// List of relevant modules used by osbuild-composer which
+	// could affect the manifest content.
+	OSBuildComposerDeps []*OSBuildComposerDepModule `json:"osbuild_composer_deps,omitempty"`
+}
+
 type ManifestJobByIDResult struct {
-	Manifest manifest.OSBuildManifest `json:"data,omitempty"`
-	Error    string                   `json:"error"`
+	Manifest     manifest.OSBuildManifest `json:"data,omitempty"`
+	ManifestInfo ManifestInfo             `json:"info,omitempty"`
+	Error        string                   `json:"error"`
 	JobResult
 }
 

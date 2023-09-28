@@ -119,6 +119,7 @@ func (impl *KojiFinalizeJobImpl) Run(job worker.Job) error {
 	var outputs []koji.BuildOutput
 	// Extra info for each image output is stored using the image filename as the key
 	imgOutputsExtraInfo := map[string]koji.ImageExtraInfo{}
+	manifestOutputsExtraInfo := map[string]*koji.ManifestExtraInfo{}
 
 	var osbuildResults []worker.OSBuildJobResult
 	initArgs, osbuildResults, err = extractDynamicArgs(job)
@@ -133,11 +134,11 @@ func (impl *KojiFinalizeJobImpl) Run(job worker.Job) error {
 		return nil
 	}
 
-	for i, buildArgs := range osbuildResults {
+	for i, buildResult := range osbuildResults {
 		buildRPMs := make([]rpmmd.RPM, 0)
 		// collect packages from stages in build pipelines
-		for _, plName := range buildArgs.PipelineNames.Build {
-			buildPipelineMd := buildArgs.OSBuildOutput.Metadata[plName]
+		for _, plName := range buildResult.PipelineNames.Build {
+			buildPipelineMd := buildResult.OSBuildOutput.Metadata[plName]
 			buildRPMs = append(buildRPMs, osbuild.OSBuildMetadataToRPMs(buildPipelineMd)...)
 		}
 		// this dedupe is usually not necessary since we generally only have
@@ -145,7 +146,7 @@ func (impl *KojiFinalizeJobImpl) Run(job worker.Job) error {
 		// multiple
 		buildRPMs = rpmmd.DeduplicateRPMs(buildRPMs)
 
-		kojiTargetResults := buildArgs.TargetResultsByName(target.TargetNameKoji)
+		kojiTargetResults := buildResult.TargetResultsByName(target.TargetNameKoji)
 		// Only a single Koji target is allowed per osbuild job
 		if len(kojiTargetResults) != 1 {
 			kojiFinalizeJobResult.JobError = clienterrors.WorkerClientError(clienterrors.ErrorKojiFinalize, "Exactly one Koji target result is expected per osbuild job", nil)
@@ -158,16 +159,16 @@ func (impl *KojiFinalizeJobImpl) Run(job worker.Job) error {
 		buildRoots = append(buildRoots, koji.BuildRoot{
 			ID: uint64(i),
 			Host: koji.Host{
-				Os:   buildArgs.HostOS,
-				Arch: buildArgs.Arch,
+				Os:   buildResult.HostOS,
+				Arch: buildResult.Arch,
 			},
 			ContentGenerator: koji.ContentGenerator{
 				Name:    "osbuild",
-				Version: "0", // TODO: put the correct version here
+				Version: buildResult.OSBuildVersion,
 			},
 			Container: koji.Container{
 				Type: "none",
-				Arch: buildArgs.Arch,
+				Arch: buildResult.Arch,
 			},
 			Tools: []koji.Tool{},
 			RPMs:  buildRPMs,
@@ -175,8 +176,8 @@ func (impl *KojiFinalizeJobImpl) Run(job worker.Job) error {
 
 		// collect packages from stages in payload pipelines
 		imageRPMs := make([]rpmmd.RPM, 0)
-		for _, plName := range buildArgs.PipelineNames.Payload {
-			payloadPipelineMd := buildArgs.OSBuildOutput.Metadata[plName]
+		for _, plName := range buildResult.PipelineNames.Payload {
+			payloadPipelineMd := buildResult.OSBuildOutput.Metadata[plName]
 			imageRPMs = append(imageRPMs, osbuild.OSBuildMetadataToRPMs(payloadPipelineMd)...)
 		}
 
@@ -184,24 +185,102 @@ func (impl *KojiFinalizeJobImpl) Run(job worker.Job) error {
 		imageRPMs = rpmmd.DeduplicateRPMs(imageRPMs)
 
 		imgOutputExtraInfo := koji.ImageExtraInfo{
-			Arch:     buildArgs.Arch,
-			BootMode: buildArgs.ImageBootMode,
+			Arch:            buildResult.Arch,
+			BootMode:        buildResult.ImageBootMode,
+			OSBuildArtifact: kojiTargetResult.OsbuildArtifact,
+			OSBuildVersion:  buildResult.OSBuildVersion,
 		}
-		imgOutputsExtraInfo[args.KojiFilenames[i]] = imgOutputExtraInfo
 
+		// The image filename is now set in the KojiTargetResultOptions.
+		// For backward compatibility, if the filename is not set in the
+		// options, use the filename from the KojiTargetOptions.
+		imageFilename := kojiTargetOptions.Image.Filename
+		if imageFilename == "" {
+			imageFilename = args.KojiFilenames[i]
+		}
+
+		// If there are any non-Koji target results in the build,
+		// add them to the image output extra metadata.
+		nonKojiTargetResults := buildResult.TargetResultsFilterByName([]target.TargetName{target.TargetNameKoji})
+		if len(nonKojiTargetResults) > 0 {
+			imgOutputExtraInfo.UploadTargetResults = nonKojiTargetResults
+		}
+
+		imgOutputsExtraInfo[imageFilename] = imgOutputExtraInfo
+
+		// Image output
 		outputs = append(outputs, koji.BuildOutput{
 			BuildRootID:  uint64(i),
-			Filename:     args.KojiFilenames[i],
-			FileSize:     kojiTargetOptions.ImageSize,
-			Arch:         buildArgs.Arch,
-			ChecksumType: koji.ChecksumTypeMD5,
-			Checksum:     kojiTargetOptions.ImageMD5,
+			Filename:     imageFilename,
+			FileSize:     kojiTargetOptions.Image.Size,
+			Arch:         buildResult.Arch,
+			ChecksumType: koji.ChecksumType(kojiTargetOptions.Image.ChecksumType),
+			Checksum:     kojiTargetOptions.Image.Checksum,
 			Type:         koji.BuildOutputTypeImage,
 			RPMs:         imageRPMs,
-			Extra: koji.BuildOutputExtra{
-				Image: imgOutputExtraInfo,
+			Extra: &koji.BuildOutputExtra{
+				ImageOutput: imgOutputExtraInfo,
 			},
 		})
+
+		// OSBuild manifest output
+		// TODO: Condition below is present for backward compatibility with old workers which don't upload the manifest.
+		// TODO: Remove the condition it in the future.
+		if kojiTargetOptions.OSBuildManifest != nil {
+			manifestExtraInfo := koji.ManifestExtraInfo{
+				Arch: buildResult.Arch,
+			}
+
+			if kojiTargetOptions.OSBuildManifestInfo != nil {
+				manifestInfo := &koji.ManifestInfo{
+					OSBuildComposerVersion: kojiTargetOptions.OSBuildManifestInfo.OSBuildComposerVersion,
+				}
+				for _, composerDep := range kojiTargetOptions.OSBuildManifestInfo.OSBuildComposerDeps {
+					dep := &koji.OSBuildComposerDepModule{
+						Path:    composerDep.Path,
+						Version: composerDep.Version,
+					}
+					if composerDep.Replace != nil {
+						dep.Replace = &koji.OSBuildComposerDepModule{
+							Path:    composerDep.Replace.Path,
+							Version: composerDep.Replace.Version,
+						}
+					}
+					manifestInfo.OSBuildComposerDeps = append(manifestInfo.OSBuildComposerDeps, dep)
+				}
+				manifestExtraInfo.Info = manifestInfo
+			}
+
+			manifestOutputsExtraInfo[kojiTargetOptions.OSBuildManifest.Filename] = &manifestExtraInfo
+
+			outputs = append(outputs, koji.BuildOutput{
+				BuildRootID:  uint64(i),
+				Filename:     kojiTargetOptions.OSBuildManifest.Filename,
+				FileSize:     kojiTargetOptions.OSBuildManifest.Size,
+				Arch:         buildResult.Arch,
+				ChecksumType: koji.ChecksumType(kojiTargetOptions.OSBuildManifest.ChecksumType),
+				Checksum:     kojiTargetOptions.OSBuildManifest.Checksum,
+				Type:         koji.BuildOutputTypeManifest,
+				Extra: &koji.BuildOutputExtra{
+					ImageOutput: manifestExtraInfo,
+				},
+			})
+		}
+
+		// Build log output
+		// TODO: Condition below is present for backward compatibility with old workers which don't upload the log.
+		// TODO: Remove the condition it in the future.
+		if kojiTargetOptions.Log != nil {
+			outputs = append(outputs, koji.BuildOutput{
+				BuildRootID:  uint64(i),
+				Filename:     kojiTargetOptions.Log.Filename,
+				FileSize:     kojiTargetOptions.Log.Size,
+				Arch:         "noarch", // log file is not architecture dependent
+				ChecksumType: koji.ChecksumType(kojiTargetOptions.Log.ChecksumType),
+				Checksum:     kojiTargetOptions.Log.Checksum,
+				Type:         koji.BuildOutputTypeLog,
+			})
+		}
 	}
 
 	build := koji.Build{
@@ -213,9 +292,10 @@ func (impl *KojiFinalizeJobImpl) Run(job worker.Job) error {
 		StartTime: int64(args.StartTime),
 		EndTime:   time.Now().Unix(),
 		Extra: koji.BuildExtra{
-			TypeInfo: koji.TypeInfo{
+			TypeInfo: koji.TypeInfoBuild{
 				Image: imgOutputsExtraInfo,
 			},
+			Manifest: manifestOutputsExtraInfo,
 		},
 	}
 

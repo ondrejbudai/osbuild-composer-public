@@ -98,8 +98,8 @@ func main() {
 			Checksum:     hash,
 			Type:         koji.BuildOutputTypeImage,
 			RPMs:         []rpmmd.RPM{},
-			Extra: koji.BuildOutputExtra{
-				Image: koji.ImageExtraInfo{
+			Extra: &koji.BuildOutputExtra{
+				ImageOutput: koji.ImageExtraInfo{
 					Arch:     arch,
 					BootMode: distro.BOOT_NONE.String(), // TODO: put the correct boot mode here
 				},
