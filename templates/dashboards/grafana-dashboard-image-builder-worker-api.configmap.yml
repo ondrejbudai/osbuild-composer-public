@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: grafana-dashboard-image-builder-composer-general
+  name: grafana-dashboard-image-builder-worker-api
   labels:
     grafana_dashboard: "true"
   annotations:
@@ -14,8 +14,8 @@ data:
           {
             "builtIn": 1,
             "datasource": {
-              "type": "datasource",
-              "uid": "grafana"
+              "type": "grafana",
+              "uid": "-- Grafana --"
             },
             "enable": true,
             "hide": true,
@@ -34,22 +34,19 @@ data:
       "editable": true,
       "fiscalYearStartMonth": 0,
       "graphTooltip": 0,
-      "id": 622188,
+      "id": 622186,
       "links": [],
       "liveNow": false,
       "panels": [
         {
           "collapsed": false,
-          "datasource": {
-            "uid": "${datasource}"
-          },
           "gridPos": {
             "h": 1,
             "w": 24,
             "x": 0,
             "y": 0
           },
-          "id": 129,
+          "id": 2,
           "panels": [],
           "title": "SLO",
           "type": "row"
@@ -69,13 +66,12 @@ data:
               "mappings": [
                 {
                   "options": {
-                    "match": "null",
-                    "result": {
+                    "null": {
                       "index": 0,
-                      "text": "1.40 days"
+                      "text": "1.4"
                     }
                   },
-                  "type": "special"
+                  "type": "value"
                 },
                 {
                   "options": {
@@ -105,8 +101,7 @@ data:
                     "value": 50
                   }
                 ]
-              },
-              "unit": "h"
+              }
             },
             "overrides": []
           },
@@ -116,9 +111,7 @@ data:
             "x": 0,
             "y": 1
           },
-          "id": 214,
-          "links": [],
-          "maxDataPoints": 100,
+          "id": 8,
           "options": {
             "colorMode": "value",
             "graphMode": "none",
@@ -131,9 +124,6 @@ data:
               "fields": "",
               "values": false
             },
-            "text": {
-              "valueSize": 80
-            },
             "textMode": "auto"
           },
           "pluginVersion": "9.3.8",
@@ -144,11 +134,8 @@ data:
                 "uid": "${datasource}"
               },
               "editorMode": "code",
-              "exemplar": true,
-              "expr": "28 * 24 * (1 - $stability_slo)\n/\n(\n  (\n    sum(rate(image_builder_composer_request_count{path=~\".*\",code=~\"5.*\", tenant=~\"$tenant\"}[28d]))\n    / \n    sum(rate(image_builder_composer_request_count{path=~\".*\",code!~\"5.*\", tenant=~\"$tenant\"}[28d]))\n  ) OR on() vector(0.01) # set fallback incase the above query result is empty\n)",
-              "format": "time_series",
-              "interval": "",
-              "intervalFactor": 1,
+              "exemplar": false,
+              "expr": "28 * 24 * (1 - $stability_slo)\n/\n(\n  (\n    sum(rate(image_builder_worker_request_count{code=~\"5.*\", tenant=~\"$tenant\"}[28d]))\n    / \n    sum(rate(image_builder_worker_request_count{code!~\"5.*\", tenant=~\"$tenant\"}[28d]))\n  ) OR on() vector(0.01)\n)",
               "legendFormat": "",
               "range": true,
               "refId": "A"
@@ -162,7 +149,6 @@ data:
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "description": "How long will it take to consume all our budget if our error consumption remains at the current rate for the selected date range.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -172,13 +158,12 @@ data:
               "mappings": [
                 {
                   "options": {
-                    "match": "null",
-                    "result": {
+                    "null": {
                       "index": 0,
-                      "text": "1.40 days"
+                      "text": "1.40"
                     }
                   },
-                  "type": "special"
+                  "type": "value"
                 },
                 {
                   "options": {
@@ -192,6 +177,7 @@ data:
                   "type": "range"
                 }
               ],
+              "max": -6,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -208,8 +194,7 @@ data:
                     "value": 50
                   }
                 ]
-              },
-              "unit": "h"
+              }
             },
             "overrides": []
           },
@@ -219,9 +204,7 @@ data:
             "x": 16,
             "y": 1
           },
-          "id": 198,
-          "links": [],
-          "maxDataPoints": 100,
+          "id": 10,
           "options": {
             "colorMode": "value",
             "graphMode": "none",
@@ -234,9 +217,6 @@ data:
               "fields": "",
               "values": false
             },
-            "text": {
-              "valueSize": 80
-            },
             "textMode": "auto"
           },
           "pluginVersion": "9.3.8",
@@ -247,12 +227,8 @@ data:
                 "uid": "${datasource}"
               },
               "editorMode": "code",
-              "exemplar": true,
-              "expr": "28 * 24 * (1 - $latency_slo) \n/\n(\n  1.001 - (\n    (\n      sum(rate(image_builder_composer_http_duration_seconds_bucket{le=\"0.2\", tenant=~\"$tenant\"}[28d]))\n      /\n      sum(rate(image_builder_composer_http_duration_seconds_count{tenant=~\"$tenant\"}[28d]))\n    ) OR on() vector(1) # set fallback incase the above query result is empty\n  ) \n)",
-              "format": "time_series",
-              "interval": "",
-              "intervalFactor": 1,
-              "legendFormat": "",
+              "expr": "28 * 24 * (1 - $latency_slo) \n/\n(\n  1.001 - (\n    (\n      # the request on the /jobs endpoint lasts 10 seconds, as it's blocking.\n      sum(rate(image_builder_worker_http_duration_seconds_bucket{path!=\"/api/image-builder-worker/v1/jobs\",le=\"0.2\", tenant=~\"$tenant\"}[28d]))\n      /\n      sum(rate(image_builder_worker_http_duration_seconds_count{path!=\"/api/image-builder-worker/v1/jobs\",tenant=~\"$tenant\"}[28d]))\n    ) OR on() vector(1) # set fallback incase the above query result is empty\n  ) \n)",
+              "legendFormat": "__auto",
               "range": true,
               "refId": "A"
             }
@@ -265,7 +241,6 @@ data:
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "description": "The percentage of error budget consumed for the selected time range. ",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -286,9 +261,6 @@ data:
                   "viz": false
                 },
                 "lineInterpolation": "linear",
-                "lineStyle": {
-                  "fill": "solid"
-                },
                 "lineWidth": 0,
                 "pointSize": 5,
                 "scaleDistribution": {
@@ -304,9 +276,7 @@ data:
                   "mode": "off"
                 }
               },
-              "links": [],
               "mappings": [],
-              "min": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -334,8 +304,7 @@ data:
             "x": 0,
             "y": 5
           },
-          "id": 216,
-          "links": [],
+          "id": 12,
           "options": {
             "legend": {
               "calcs": [],
@@ -348,7 +317,6 @@ data:
               "sort": "none"
             }
           },
-          "pluginVersion": "8.2.1",
           "targets": [
             {
               "datasource": {
@@ -356,12 +324,9 @@ data:
                 "uid": "${datasource}"
               },
               "editorMode": "code",
-              "exemplar": true,
-              "expr": "1 - (\n  (\n    1 - $stability_slo - (\n      (\n        sum(increase(image_builder_composer_request_count{code=~\"5.*\", tenant=~\"$tenant\"}[28d]))\n        /\n        sum(increase(image_builder_composer_request_count{code!~\"5.*\", tenant=~\"$tenant\"}[28d]))\n      ) OR on() vector(0) # set fallback for empty query result\n    )\n  )\n)\n/\n(1 - $stability_slo)",
-              "instant": false,
-              "interval": "",
-              "intervalFactor": 10,
-              "legendFormat": "errorbudget",
+              "expr": "1 - (\n  (\n    1 - $stability_slo - (\n      (\n        sum(increase(image_builder_worker_request_count{code=~\"5.*\", tenant=~\"$tenant\"}[28d]))\n        /\n        sum(increase(image_builder_worker_request_count{code!~\"5.*\", tenant=~\"$tenant\"}[28d]))\n      ) OR on() vector(0) # set fallback for empty query result\n    )\n  )\n)\n/\n(1 - $stability_slo)",
+              "legendFormat": "__auto",
+              "range": true,
               "refId": "A"
             }
           ],
@@ -373,7 +338,6 @@ data:
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "description": "The percentage of error budget consumed for the selected time range. ",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -394,9 +358,6 @@ data:
                   "viz": false
                 },
                 "lineInterpolation": "linear",
-                "lineStyle": {
-                  "fill": "solid"
-                },
                 "lineWidth": 0,
                 "pointSize": 5,
                 "scaleDistribution": {
@@ -412,9 +373,7 @@ data:
                   "mode": "off"
                 }
               },
-              "links": [],
               "mappings": [],
-              "min": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -442,8 +401,7 @@ data:
             "x": 16,
             "y": 5
           },
-          "id": 199,
-          "links": [],
+          "id": 13,
           "options": {
             "legend": {
               "calcs": [],
@@ -456,7 +414,6 @@ data:
               "sort": "none"
             }
           },
-          "pluginVersion": "8.2.1",
           "targets": [
             {
               "datasource": {
@@ -464,12 +421,9 @@ data:
                 "uid": "${datasource}"
               },
               "editorMode": "code",
-              "exemplar": true,
-              "expr": "1 - (\n  (\n    (\n      sum(increase(image_builder_composer_http_duration_seconds_bucket{le=\"0.2\", tenant=~\"$tenant\"}[28d]))\n      /\n      sum(increase(image_builder_composer_http_duration_seconds_count{tenant=~\"$tenant\"}[28d]))\n    ) OR on() vector(1)\n  ) - $latency_slo\n)\n/ \n(1 - $latency_slo)",
-              "instant": false,
-              "interval": "",
-              "intervalFactor": 10,
-              "legendFormat": "errorbudget",
+              "expr": "1 - (\n  (\n    (\n      # the request on the /jobs endpoint lasts 10 seconds, as it's blocking.\n      sum(increase(image_builder_worker_http_duration_seconds_bucket{path!=\"/api/image-builder-worker/v1/jobs\",le=\"0.2\",tenant=~\"$tenant\"}[28d]))\n      /\n      sum(increase(image_builder_worker_http_duration_seconds_count{path!=\"/api/image-builder-worker/v1/jobs\",tenant=~\"$tenant\"}[28d]))\n    ) OR on() vector(1)\n  ) - $latency_slo\n)\n/ \n(1 - $latency_slo)",
+              "legendFormat": "__auto",
+              "range": true,
               "refId": "A"
             }
           ],
@@ -484,7 +438,7 @@ data:
             "x": 0,
             "y": 13
           },
-          "id": 206,
+          "id": 6,
           "panels": [],
           "title": "API throughput",
           "type": "row"
@@ -494,271 +448,10 @@ data:
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "description": "The percentage of successful compose requests for the selected time range",
           "fieldConfig": {
             "defaults": {
               "color": {
                 "mode": "thresholds"
-              },
-              "decimals": 0,
-              "mappings": [
-                {
-                  "options": {
-                    "match": "null",
-                    "result": {
-                      "index": 0,
-                      "text": "N/A"
-                    }
-                  },
-                  "type": "special"
-                }
-              ],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "red",
-                    "value": null
-                  },
-                  {
-                    "color": "#EAB839",
-                    "value": "0.95"
-                  },
-                  {
-                    "color": "green",
-                    "value": "0.955"
-                  }
-                ]
-              },
-              "unit": "percentunit"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 3,
-            "w": 8,
-            "x": 0,
-            "y": 14
-          },
-          "id": 197,
-          "mappings": [
-            {
-              "options": {
-                "match": "null",
-                "result": {
-                  "text": "N/A"
-                }
-              },
-              "type": "special"
-            }
-          ],
-          "options": {
-            "colorMode": "value",
-            "graphMode": "none",
-            "justifyMode": "auto",
-            "orientation": "auto",
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "text": {},
-            "textMode": "auto"
-          },
-          "pluginVersion": "9.3.8",
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "editorMode": "code",
-              "exemplar": true,
-              "expr": "1 - (\n  (\n    sum(increase(image_builder_composer_request_count{code=~\"5.*\", path=\"/api/image-builder-composer/v2/compose\", subsystem=\"composer\", tenant=~\"$tenant\"}[$__range]))\n    /\n    sum(increase(image_builder_composer_request_count{path=\"/api/image-builder-composer/v2/compose\", subsystem=\"composer\", tenant=~\"$tenant\"}[$__range]))\n  ) OR on() vector(0) # set a fallback if the query result is empty\n)",
-              "interval": "",
-              "legendFormat": "",
-              "range": true,
-              "refId": "A"
-            }
-          ],
-          "title": "compose request success rate",
-          "type": "stat"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "description": "The percentage of successful compose requests for the selected time range",
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "thresholds"
-              },
-              "decimals": 0,
-              "mappings": [
-                {
-                  "options": {
-                    "match": "null",
-                    "result": {
-                      "index": 0,
-                      "text": "N/A"
-                    }
-                  },
-                  "type": "special"
-                }
-              ],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "red",
-                    "value": null
-                  },
-                  {
-                    "color": "#EAB839",
-                    "value": "0.95"
-                  },
-                  {
-                    "color": "green",
-                    "value": "0.955"
-                  }
-                ]
-              },
-              "unit": "percentunit"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 3,
-            "w": 8,
-            "x": 8,
-            "y": 14
-          },
-          "id": 207,
-          "mappings": [
-            {
-              "options": {
-                "match": "null",
-                "result": {
-                  "text": "N/A"
-                }
-              },
-              "type": "special"
-            }
-          ],
-          "options": {
-            "colorMode": "value",
-            "graphMode": "none",
-            "justifyMode": "auto",
-            "orientation": "auto",
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "text": {},
-            "textMode": "auto"
-          },
-          "pluginVersion": "9.3.8",
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "editorMode": "code",
-              "exemplar": true,
-              "expr": "1 - (\n  (\n    sum(increase(image_builder_composer_request_count{code=~\"5.*\", path!=\"/api/image-builder-composer/v2/compose\", subsystem=\"composer\", tenant=~\"$tenant\"}[$__range]))\n    /\n    sum(increase(image_builder_composer_request_count{path!=\"/api/image-builder-composer/v2/compose\", subsystem=\"composer\", tenant=~\"$tenant\"}[$__range]))\n  ) OR on() vector(0) # set a fallback if the query result is empty\n)",
-              "interval": "",
-              "legendFormat": "",
-              "range": true,
-              "refId": "A"
-            }
-          ],
-          "title": "non-compose request success rate",
-          "type": "stat"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "description": "The number of total compose requests for the selected date range",
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "thresholds"
-              },
-              "decimals": 0,
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 3,
-            "w": 8,
-            "x": 16,
-            "y": 14
-          },
-          "id": 196,
-          "options": {
-            "colorMode": "value",
-            "graphMode": "none",
-            "justifyMode": "auto",
-            "orientation": "auto",
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "text": {},
-            "textMode": "auto"
-          },
-          "pluginVersion": "9.3.8",
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "editorMode": "code",
-              "exemplar": true,
-              "expr": "sum(increase(image_builder_composer_request_count{path=\"/api/image-builder-composer/v2/compose\", tenant=~\"$tenant\"}[$__range]))",
-              "interval": "",
-              "legendFormat": "",
-              "range": true,
-              "refId": "A"
-            }
-          ],
-          "title": "compose requests",
-          "type": "stat"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "description": "The throughput rate of Compose errors and non-errors over time for the selected time range",
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "continuous-blues"
               },
               "custom": {
                 "axisCenteredZero": false,
@@ -767,15 +460,15 @@ data:
                 "axisPlacement": "auto",
                 "barAlignment": 0,
                 "drawStyle": "line",
-                "fillOpacity": 5,
-                "gradientMode": "hue",
+                "fillOpacity": 10,
+                "gradientMode": "opacity",
                 "hideFrom": {
                   "legend": false,
                   "tooltip": false,
                   "viz": false
                 },
                 "lineInterpolation": "linear",
-                "lineWidth": 2,
+                "lineWidth": 1,
                 "pointSize": 5,
                 "scaleDistribution": {
                   "type": "linear"
@@ -799,21 +492,20 @@ data:
                     "value": null
                   }
                 ]
-              },
-              "unit": "none"
+              }
             },
             "overrides": [
               {
                 "matcher": {
                   "id": "byRegexp",
-                  "options": ".*success/sec"
+                  "options": ".*successes/sec"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
-                      "fixedColor": "blue",
-                      "mode": "palette-classic"
+                      "fixedColor": "green",
+                      "mode": "fixed"
                     }
                   }
                 ]
@@ -824,9 +516,9 @@ data:
             "h": 16,
             "w": 24,
             "x": 0,
-            "y": 17
+            "y": 14
           },
-          "id": 202,
+          "id": 15,
           "options": {
             "legend": {
               "calcs": [],
@@ -846,11 +538,9 @@ data:
                 "uid": "${datasource}"
               },
               "editorMode": "code",
-              "exemplar": true,
-              "expr": "sum by (path) (rate(image_builder_composer_request_count{code!~\"5.*\", tenant=~\"$tenant\"}[$__rate_interval]))",
-              "hide": false,
-              "interval": "",
-              "legendFormat": "{{path}} success/sec",
+              "exemplar": false,
+              "expr": "sum by (path) (rate(image_builder_worker_request_count{code!~\"5.*\", tenant=~\"$tenant\"}[$__rate_interval]))",
+              "legendFormat": "{{path}} successes/sec",
               "range": true,
               "refId": "A"
             },
@@ -860,10 +550,8 @@ data:
                 "uid": "${datasource}"
               },
               "editorMode": "code",
-              "exemplar": true,
-              "expr": "sum by (path) (rate(image_builder_composer_request_count{code=~\"5.*\", tenant=~\"$tenant\"}[$__rate_interval]))",
+              "expr": "sum by(path) (rate(image_builder_worker_request_count{code=~\"5.*\", tenant=~\"$tenant\"}[$__rate_interval]))",
               "hide": false,
-              "interval": "",
               "legendFormat": "{{path}} errors/sec",
               "range": true,
               "refId": "B"
@@ -874,16 +562,13 @@ data:
         },
         {
           "collapsed": false,
-          "datasource": {
-            "uid": "${datasource}"
-          },
           "gridPos": {
             "h": 1,
             "w": 24,
             "x": 0,
-            "y": 33
+            "y": 30
           },
-          "id": 128,
+          "id": 4,
           "panels": [],
           "title": "API latency",
           "type": "row"
@@ -893,38 +578,36 @@ data:
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "description": "The percentage of successful compose requests for the selected time range",
           "fieldConfig": {
             "defaults": {
               "color": {
                 "mode": "thresholds"
               },
-              "decimals": 0,
               "mappings": [
                 {
                   "options": {
-                    "match": "null",
-                    "result": {
+                    "null": {
                       "index": 0,
                       "text": "N/A"
                     }
                   },
-                  "type": "special"
+                  "type": "value"
                 }
               ],
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "#EAB839",
-                    "value": "175"
+                    "value": 180
                   },
                   {
                     "color": "red",
-                    "value": "200"
+                    "value": 200
                   }
                 ]
               },
@@ -936,20 +619,9 @@ data:
             "h": 7,
             "w": 4,
             "x": 0,
-            "y": 34
+            "y": 31
           },
-          "id": 200,
-          "mappings": [
-            {
-              "options": {
-                "match": "null",
-                "result": {
-                  "text": "N/A"
-                }
-              },
-              "type": "special"
-            }
-          ],
+          "id": 17,
           "options": {
             "colorMode": "value",
             "graphMode": "area",
@@ -962,7 +634,6 @@ data:
               "fields": "",
               "values": false
             },
-            "text": {},
             "textMode": "auto"
           },
           "pluginVersion": "9.3.8",
@@ -973,10 +644,8 @@ data:
                 "uid": "${datasource}"
               },
               "editorMode": "code",
-              "exemplar": true,
-              "expr": "histogram_quantile(0.95, sum(rate(image_builder_composer_http_duration_seconds_bucket{tenant=~\"$tenant\"}[$__range])) by (le)) * 1000",
-              "interval": "",
-              "legendFormat": "",
+              "expr": "histogram_quantile(0.95, sum(rate(image_builder_worker_http_duration_seconds_bucket{path!=\"/api/image-builder-worker/v1/jobs\",tenant=~\"$tenant\"}[$__range])) by (le)) * 1000",
+              "legendFormat": "__auto",
               "range": true,
               "refId": "A"
             }
@@ -989,7 +658,6 @@ data:
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "description": "The request latency for http requests over the selected date range",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -998,9 +666,9 @@ data:
               "custom": {
                 "axisCenteredZero": false,
                 "axisColorMode": "text",
-                "axisLabel": "seconds",
+                "axisLabel": "",
                 "axisPlacement": "auto",
-                "barAlignment": 0,
+                "barAlignment": -1,
                 "drawStyle": "line",
                 "fillOpacity": 25,
                 "gradientMode": "opacity",
@@ -1009,9 +677,9 @@ data:
                   "tooltip": false,
                   "viz": false
                 },
-                "lineInterpolation": "linear",
-                "lineWidth": 2,
-                "pointSize": 5,
+                "lineInterpolation": "smooth",
+                "lineWidth": 1,
+                "pointSize": 1,
                 "scaleDistribution": {
                   "type": "linear"
                 },
@@ -1026,12 +694,12 @@ data:
                 }
               },
               "mappings": [],
-              "min": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "dark-purple",
@@ -1081,7 +749,7 @@ data:
                   {
                     "id": "color",
                     "value": {
-                      "fixedColor": "light-red",
+                      "fixedColor": "red",
                       "mode": "fixed"
                     }
                   }
@@ -1091,11 +759,11 @@ data:
           },
           "gridPos": {
             "h": 7,
-            "w": 12,
+            "w": 13,
             "x": 4,
-            "y": 34
+            "y": 31
           },
-          "id": 201,
+          "id": 19,
           "options": {
             "legend": {
               "calcs": [],
@@ -1115,13 +783,10 @@ data:
                 "uid": "${datasource}"
               },
               "editorMode": "code",
-              "exemplar": true,
-              "expr": "histogram_quantile(0.99, sum(rate(image_builder_composer_http_duration_seconds_bucket{tenant=~\"$tenant\"}[$__rate_interval])) by (le))",
-              "hide": false,
-              "interval": "",
+              "expr": "histogram_quantile(0.99, sum(rate(image_builder_worker_http_duration_seconds_bucket{path!=\"/api/image-builder-worker/v1/jobs\",tenant=~\"$tenant\"}[$__rate_interval])) by (le))",
               "legendFormat": "p99",
               "range": true,
-              "refId": "C"
+              "refId": "A"
             },
             {
               "datasource": {
@@ -1129,10 +794,8 @@ data:
                 "uid": "${datasource}"
               },
               "editorMode": "code",
-              "exemplar": true,
-              "expr": "histogram_quantile(0.95, sum(rate(image_builder_composer_http_duration_seconds_bucket{tenant=~\"$tenant\"}[$__rate_interval])) by (le))",
+              "expr": "histogram_quantile(0.95, sum(rate(image_builder_worker_http_duration_seconds_bucket{path!=\"/api/image-builder-worker/v1/jobs\",tenant=~\"$tenant\"}[$__rate_interval])) by (le))",
               "hide": false,
-              "interval": "",
               "legendFormat": "p95",
               "range": true,
               "refId": "B"
@@ -1143,12 +806,11 @@ data:
                 "uid": "${datasource}"
               },
               "editorMode": "code",
-              "exemplar": true,
-              "expr": "histogram_quantile(0.5, sum(rate(image_builder_composer_http_duration_seconds_bucket{tenant=~\"$tenant\"}[$__rate_interval])) by (le))",
-              "interval": "",
+              "expr": "histogram_quantile(0.5, sum(rate(image_builder_worker_http_duration_seconds_bucket{path!=\"/api/image-builder-worker/v1/jobs\",tenant=~\"$tenant\"}[$__rate_interval])) by (le))",
+              "hide": false,
               "legendFormat": "p50",
               "range": true,
-              "refId": "A"
+              "refId": "C"
             }
           ],
           "title": "request latency",
@@ -1159,7 +821,6 @@ data:
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "description": "Percent of requests exceeding latency allowed by SLO",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -1202,7 +863,8 @@ data:
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -1216,11 +878,11 @@ data:
           },
           "gridPos": {
             "h": 7,
-            "w": 8,
-            "x": 16,
-            "y": 34
+            "w": 7,
+            "x": 17,
+            "y": 31
           },
-          "id": 204,
+          "id": 21,
           "options": {
             "legend": {
               "calcs": [],
@@ -1240,10 +902,8 @@ data:
                 "uid": "${datasource}"
               },
               "editorMode": "code",
-              "exemplar": true,
-              "expr": "1 - sum(rate(image_builder_composer_http_duration_seconds_bucket{le=\"0.2\", tenant=~\"$tenant\"}[$__rate_interval]))/sum(rate(image_builder_composer_http_duration_seconds_count[$__rate_interval]))",
-              "interval": "",
-              "legendFormat": "",
+              "expr": "1 - sum(rate(image_builder_worker_http_duration_seconds_bucket{le=\"0.2\",path!=\"/api/image-builder-worker/v1/jobs\",tenant=~\"$tenant\"}[$__rate_interval]))/sum(rate(image_builder_worker_http_duration_seconds_count{path!=\"/api/image-builder-worker/v1/jobs\",tenant=~\"$tenant\"}[$__rate_interval]))",
+              "legendFormat": "__auto",
               "range": true,
               "refId": "A"
             }
@@ -1256,7 +916,6 @@ data:
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "description": "The throughput rate of Compose errors and non-errors over time for the selected time range",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -1278,11 +937,11 @@ data:
                 },
                 "lineInterpolation": "linear",
                 "lineWidth": 2,
-                "pointSize": 5,
+                "pointSize": 1,
                 "scaleDistribution": {
                   "type": "linear"
                 },
-                "showPoints": "auto",
+                "showPoints": "never",
                 "spanNulls": 3600000,
                 "stacking": {
                   "group": "A",
@@ -1298,7 +957,8 @@ data:
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "#EAB839",
@@ -1318,13 +978,13 @@ data:
             "h": 16,
             "w": 24,
             "x": 0,
-            "y": 41
+            "y": 38
           },
-          "id": 213,
+          "id": 23,
           "options": {
             "legend": {
               "calcs": [],
-              "displayMode": "table",
+              "displayMode": "list",
               "placement": "bottom",
               "showLegend": true
             },
@@ -1340,11 +1000,8 @@ data:
                 "uid": "${datasource}"
               },
               "editorMode": "code",
-              "exemplar": true,
-              "expr": "histogram_quantile(0.95, sum by(le, path) (rate(image_builder_composer_http_duration_seconds_bucket{tenant=~\"$tenant\"}[$__rate_interval]))) * 1000",
-              "hide": false,
-              "interval": "",
-              "legendFormat": "{{path}}",
+              "expr": "histogram_quantile(0.95, sum by(le, path) (rate(image_builder_worker_http_duration_seconds_bucket{path!=\"/api/image-builder-worker/v1/jobs\",tenant=~\"$tenant\"}[$__rate_interval]))) * 1000",
+              "legendFormat": "__auto",
               "range": true,
               "refId": "A"
             }
@@ -1353,7 +1010,6 @@ data:
           "type": "timeseries"
         }
       ],
-      "refresh": false,
       "schemaVersion": 37,
       "style": "dark",
       "tags": [],
@@ -1361,7 +1017,7 @@ data:
         "list": [
           {
             "current": {
-              "selected": false,
+              "selected": true,
               "text": "app-sre-prod-04-prometheus",
               "value": "app-sre-prod-04-prometheus"
             },
@@ -1376,22 +1032,6 @@ data:
             "regex": "/app-sre-(prod-04|stage-01)-prometheus/",
             "skipUrlSync": false,
             "type": "datasource"
-          },
-          {
-            "description": "Compose stability SLO target",
-            "hide": 2,
-            "name": "stability_slo",
-            "query": "0.95",
-            "skipUrlSync": false,
-            "type": "constant"
-          },
-          {
-            "description": "Compose latency SLO target",
-            "hide": 2,
-            "name": "latency_slo",
-            "query": "0.95",
-            "skipUrlSync": false,
-            "type": "constant"
           },
           {
             "allValue": ".*",
@@ -1449,6 +1089,20 @@ data:
             "queryValue": "",
             "skipUrlSync": false,
             "type": "custom"
+          },
+          {
+            "hide": 2,
+            "name": "stability_slo",
+            "query": "0.95",
+            "skipUrlSync": false,
+            "type": "constant"
+          },
+          {
+            "hide": 2,
+            "name": "latency_slo",
+            "query": "0.95",
+            "skipUrlSync": false,
+            "type": "constant"
           }
         ]
       },
@@ -1456,34 +1110,10 @@ data:
         "from": "now-6h",
         "to": "now"
       },
-      "timepicker": {
-        "refresh_intervals": [
-          "5s",
-          "10s",
-          "30s",
-          "1m",
-          "5m",
-          "15m",
-          "30m",
-          "1h",
-          "2h",
-          "1d"
-        ],
-        "time_options": [
-          "5m",
-          "15m",
-          "1h",
-          "6h",
-          "12h",
-          "24h",
-          "2d",
-          "7d",
-          "28d"
-        ]
-      },
+      "timepicker": {},
       "timezone": "",
-      "title": "Image Builder Composer",
-      "uid": "image-builder-composer",
-      "version": 9,
+      "title": "Image Builder Worker API",
+      "uid": "image-builder-worker-api",
+      "version": 1,
       "weekStart": ""
     }
