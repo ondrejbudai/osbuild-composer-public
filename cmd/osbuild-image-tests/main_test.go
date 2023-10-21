@@ -23,13 +23,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/osbuild/images/pkg/platform"
 	"github.com/ondrejbudai/osbuild-composer-public/cmd/osbuild-image-tests/constants"
 	"github.com/ondrejbudai/osbuild-composer-public/public/boot"
 	"github.com/ondrejbudai/osbuild-composer-public/public/boot/azuretest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/boot/openstacktest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/boot/vmwaretest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
-	"github.com/ondrejbudai/osbuild-composer-public/public/platform"
 	"github.com/ondrejbudai/osbuild-composer-public/public/test"
 )
 
