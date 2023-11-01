@@ -2,7 +2,7 @@
 
 specfile_path: osbuild-composer.spec
 
-synced_files:
+files_to_sync:
     - osbuild-composer.spec
     - .packit.yaml
 
@@ -14,6 +14,9 @@ srpm_build_deps: []
 actions:
   get-current-version: bash -c "git describe --tags --abbrev=0 | sed 's|v||'"
   post-upstream-clone: "./tools/rpm_spec_add_provides_bundle.sh"
+
+# Handle only releases without a "dot" (e.g. v88.2), since "dot" releases should never be released to Fedora
+upstream_tag_include: 'v\d+'
 
 jobs:
 - job: bodhi_update
