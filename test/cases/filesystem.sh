@@ -120,7 +120,7 @@ greenprint "🚀 Checking custom filesystems (success case)"
 
 # Write a basic blueprint for our image.
 tee "$BLUEPRINT_FILE" > /dev/null << EOF
-name = "rhel85-custom-filesystem"
+name = "custom-filesystem"
 description = "A base system with custom mountpoints"
 version = "0.0.1"
 
@@ -157,6 +157,10 @@ mountpoint = "/home"
 size = 131072000
 
 [[customizations.filesystem]]
+mountpoint = "/home/shadownman"
+size = 131072000
+
+[[customizations.filesystem]]
 mountpoint = "/opt"
 size = 131072000
 
@@ -171,9 +175,27 @@ size = 131072000
 [[customizations.filesystem]]
 mountpoint = "/data"
 size = 131072000
+
+[[customizations.filesystem]]
+mountpoint = "/boot"
+size = 131072000
 EOF
 
-build_image "$BLUEPRINT_FILE" rhel85-custom-filesystem qcow2 false
+# Workaround for RHEL-9.3 nightly pipeline
+if [[ "$VERSION_ID" != "9.3" ]]; then
+    tee -a "$BLUEPRINT_FILE" > /dev/null << EOF
+
+[[customizations.filesystem]]
+mountpoint = "/boot/firmware"
+size = 131072000
+
+[[customizations.filesystem]]
+mountpoint = "/foobar"
+size = 131072000
+EOF
+fi
+
+build_image "$BLUEPRINT_FILE" custom-filesystem qcow2 false
 
 # Download the image.
 greenprint "📥 Downloading the image"
@@ -199,7 +221,7 @@ check_result "Passing"
 # Clean compose and blueprints.
 greenprint "🧼 Clean up osbuild-composer again"
 sudo composer-cli compose delete "${COMPOSE_ID}" > /dev/null
-sudo composer-cli blueprints delete rhel85-custom-filesystem > /dev/null
+sudo composer-cli blueprints delete custom-filesystem > /dev/null
 
 ##################################################
 ##
@@ -211,7 +233,7 @@ greenprint "🚀 Checking custom filesystems (fail case)"
 
 # Write a basic blueprint for our image.
 tee "$BLUEPRINT_FILE" > /dev/null << EOF
-name = "rhel85-custom-filesystem-fail"
+name = "custom-filesystem-fail"
 description = "A base system with custom mountpoints"
 version = "0.0.1"
 
@@ -224,30 +246,96 @@ mountpoint = "/etc"
 size = 131072000
 
 [[customizations.filesystem]]
+mountpoint = "/sys"
+size = 131072000
+
+[[customizations.filesystem]]
+mountpoint = "/proc"
+size = 131072000
+
+[[customizations.filesystem]]
+mountpoint = "/dev"
+size = 131072000
+
+[[customizations.filesystem]]
+mountpoint = "/run"
+size = 131072000
+
+[[customizations.filesystem]]
+mountpoint = "/bin"
+size = 131072000
+
+[[customizations.filesystem]]
+mountpoint = "/sbin"
+size = 131072000
+
+[[customizations.filesystem]]
+mountpoint = "/lib"
+size = 131072000
+
+[[customizations.filesystem]]
+mountpoint = "/lib64"
+size = 131072000
+
+[[customizations.filesystem]]
 mountpoint = "/lost+found"
 size = 131072000
 
+[[customizations.filesystem]]
+mountpoint = "/boot/efi"
+size = 131072000
+
+[[customizations.filesystem]]
+mountpoint = "/sysroot"
+size = 131072000
 EOF
 
-# build_image "$BLUEPRINT_FILE" rhel85-custom-filesystem-fail qcow2 true
-build_image "$BLUEPRINT_FILE" rhel85-custom-filesystem-fail qcow2 true
+# Workaround for RHEL-9.3 nightly pipeline
+if [[ "$VERSION_ID" != "9.3" ]]; then
+    tee -a "$BLUEPRINT_FILE" > /dev/null << EOF
+
+[[customizations.filesystem]]
+mountpoint = "/usr/bin"
+size = 131072000
+
+[[customizations.filesystem]]
+mountpoint = "/var/run"
+size = 131072000
+
+[[customizations.filesystem]]
+mountpoint = "/var/lock"
+size = 131072000
+EOF
+fi
+
+# build_image "$BLUEPRINT_FILE" custom-filesystem-fail qcow2 true
+build_image "$BLUEPRINT_FILE" custom-filesystem-fail qcow2 true
 
 # Clear the test variable
 FAILED_MOUNTPOINTS=()
 
 greenprint "💬 Checking expected failures"
-for MOUNTPOINT in '/etc' '/lost+found' ; do
+for MOUNTPOINT in '/etc' '/sys' '/proc' '/dev' '/run' '/bin' '/sbin' '/lib' '/lib64' '/lost+found' '/boot/efi' '/sysroot'; do
   if ! [[ $ERROR_MSG == *"$MOUNTPOINT"* ]]; then
     FAILED_MOUNTPOINTS+=("$MOUNTPOINT")
   fi
 done
+
+# Workaround for RHEL-9.3 nightly pipeline
+if [[ "$VERSION_ID" != "9.3" ]]; then
+  for MOUNTPOINT in '/usr/bin' '/var/run' '/var/lock'; do
+    if ! [[ $ERROR_MSG == *"$MOUNTPOINT"* ]]; then
+      FAILED_MOUNTPOINTS+=("$MOUNTPOINT")
+    fi
+  done
+fi
 
 # Check the result and pass scenario type
 check_result "Failing"
 
 # Clean compose and blueprints.
 greenprint "🧼 Clean up osbuild-composer again"
-sudo composer-cli blueprints delete rhel85-custom-filesystem-fail > /dev/null
+sudo composer-cli blueprints delete custom-filesystem-fail > /dev/null
 
 clean_up
 
