@@ -291,6 +291,7 @@ func TestCompose(t *testing.T) {
 	//	"reason": "Requested method isn't supported for resource"
 	// }`, "operation_id")
 
+	// With upload options for default target
 	test.TestRoute(t, srv.Handler("/api/image-builder-composer/v2"), false, "POST", "/api/image-builder-composer/v2/compose", fmt.Sprintf(`
 	{
 		"distribution": "%s",
@@ -310,6 +311,59 @@ func TestCompose(t *testing.T) {
 		"href": "/api/image-builder-composer/v2/compose",
 		"kind": "ComposeId"
 	}`, "id")
+
+	// With upload options for specific upload target
+	test.TestRoute(t, srv.Handler("/api/image-builder-composer/v2"), false, "POST", "/api/image-builder-composer/v2/compose", fmt.Sprintf(`
+	{
+		"distribution": "%s",
+		"image_request":{
+			"architecture": "%s",
+			"image_type": "aws",
+			"repositories": [{
+				"baseurl": "somerepo.org",
+				"rhsm": false
+			}],
+			"upload_targets": [{
+				"type": "aws",
+				"upload_options": {
+					"region": "eu-central-1"
+				}
+			}]
+		}
+	}`, test_distro.TestDistroName, test_distro.TestArch3Name), http.StatusCreated, `
+	{
+		"href": "/api/image-builder-composer/v2/compose",
+		"kind": "ComposeId"
+	}`, "id")
+
+	// With both upload options for default target and a specific target
+	test.TestRoute(t, srv.Handler("/api/image-builder-composer/v2"), false, "POST", "/api/image-builder-composer/v2/compose", fmt.Sprintf(`
+	{
+		"distribution": "%s",
+		"image_request":{
+			"architecture": "%s",
+			"image_type": "aws",
+			"repositories": [{
+				"baseurl": "somerepo.org",
+				"rhsm": false
+			}],
+			"upload_targets": [{
+				"type": "aws",
+				"upload_options": {
+					"region": "eu-central-1"
+				}
+			}],
+			"upload_options": {
+				"region": "eu-central-1"
+			}
+		}
+	}`, test_distro.TestDistroName, test_distro.TestArch3Name), http.StatusCreated, `
+	{
+		"href": "/api/image-builder-composer/v2/compose",
+		"kind": "ComposeId"
+	}`, "id")
+
+	// Koji
 	test.TestRoute(t, srv.Handler("/api/image-builder-composer/v2"), false, "POST", "/api/image-builder-composer/v2/compose", fmt.Sprintf(`
 	{
 		"distribution": "%s",
@@ -346,6 +400,36 @@ func TestCompose(t *testing.T) {
 			"repositories": [{
 				"baseurl": "somerepo.org",
 				"rhsm": false
+			}],
+			"upload_options": {
+				"region": "eu-central-1"
+			},
+			"ostree": {
+				"ref": "rhel/10/x86_64/edge"
+			}
+		}
+	}`, test_distro.TestDistroName, test_distro.TestArch3Name), http.StatusCreated, `
+	{
+		"href": "/api/image-builder-composer/v2/compose",
+		"kind": "ComposeId"
+	}`, "id")
+
+	// ref only with secondary pulp upload target
+	test.TestRoute(t, srv.Handler("/api/image-builder-composer/v2"), false, "POST", "/api/image-builder-composer/v2/compose", fmt.Sprintf(`
+	{
+		"distribution": "%s",
+		"image_request":{
+			"architecture": "%s",
+			"image_type": "edge-commit",
+			"repositories": [{
+				"baseurl": "somerepo.org",
+				"rhsm": false
+			}],
+			"upload_targets": [{
+				"type": "pulp.ostree",
+				"upload_options": {
+					"basepath": "edge/rhel10"
+				}
 			}],
 			"upload_options": {
 				"region": "eu-central-1"
@@ -887,7 +971,15 @@ func TestComposeTargetErrors(t *testing.T) {
 				},
 				"status": "failure",
 				"type": "aws"
-			}
+			},
+			"upload_statuses": [{
+				"options": {
+					"ami": "",
+					"region": ""
+				},
+				"status": "failure",
+				"type": "aws"
+			}]
 		},
 		"status": "failure"
 	}`, jobId, jobId))
@@ -1291,7 +1383,15 @@ func TestImageFromCompose(t *testing.T) {
 					"ami": "ami-abc123",
 					"region": "eu-central-1"
 				}
-			}
+			},
+			"upload_statuses": [{
+				"type": "aws",
+				"status": "success",
+				"options": {
+					"ami": "ami-abc123",
+					"region": "eu-central-1"
+				}
+			}]
 		}
 	}`, jobId, jobId))
 

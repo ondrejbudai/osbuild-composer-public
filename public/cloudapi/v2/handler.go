@@ -139,7 +139,7 @@ type imageRequest struct {
 	arch         distro.Arch
 	repositories []rpmmd.RepoConfig
 	imageOptions distro.ImageOptions
-	target       *target.Target
+	targets      []*target.Target
 }
 
 func (h *apiHandlers) PostCompose(ctx echo.Context) error {
@@ -236,8 +236,8 @@ func (h *apiHandlers) PostCompose(ctx echo.Context) error {
 			return err
 		}
 
-		var irTarget *target.Target
-		if ir.UploadOptions == nil {
+		var irTargets []*target.Target
+		if ir.UploadOptions == nil && (ir.UploadTargets == nil || len(*ir.UploadTargets) == 0) {
 			// nowhere to put the image, this is a user error
 			if request.Koji == nil {
 				return HTTPError(ErrorJSONUnMarshallingError)
@@ -245,13 +245,14 @@ func (h *apiHandlers) PostCompose(ctx echo.Context) error {
 		} else if localSave {
 			// Override the image type upload selection and save it locally
 			// Final image is in /var/lib/osbuild-composer/artifacts/UUID/
-			irTarget = target.NewWorkerServerTarget()
-			irTarget.ImageName = imageType.Filename()
-			irTarget.OsbuildArtifact.ExportFilename = imageType.Filename()
-			irTarget.OsbuildArtifact.ExportName = imageType.Exports()[0]
+			srvTarget := target.NewWorkerServerTarget()
+			srvTarget.ImageName = imageType.Filename()
+			srvTarget.OsbuildArtifact.ExportFilename = imageType.Filename()
+			srvTarget.OsbuildArtifact.ExportName = imageType.Exports()[0]
+			irTargets = []*target.Target{srvTarget}
 		} else {
 			// Get the target for the selected image type
-			irTarget, err = ir.GetTarget(&request, imageType)
+			irTargets, err = ir.GetTargets(&request, imageType)
 			if err != nil {
 				return err
 			}
@@ -262,7 +263,7 @@ func (h *apiHandlers) PostCompose(ctx echo.Context) error {
 			arch:         arch,
 			repositories: repos,
 			imageOptions: imageOptions,
-			target:       irTarget,
+			targets:      irTargets,
 		})
 	}
 
@@ -390,7 +391,12 @@ func targetResultToUploadStatus(t *target.TargetResult) (*UploadStatus, error) {
 		uploadOptions = OCIUploadStatus{
 			Url: ociOptions.URL,
 		}
-
+	case target.TargetNamePulpOSTree:
+		uploadType = UploadTypesPulpOstree
+		pulpOSTreeOptions := t.Options.(*target.PulpOSTreeTargetResultOptions)
+		uploadOptions = PulpOSTreeUploadStatus{
+			RepoUrl: pulpOSTreeOptions.RepoURL,
+		}
 	default:
 		return nil, fmt.Errorf("unknown upload target: %s", t.Name)
 	}
@@ -433,18 +439,26 @@ func (h *apiHandlers) getComposeStatusImpl(ctx echo.Context, id string) error {
 			return HTTPError(ErrorGettingBuildDependencyStatus)
 		}
 
-		var us *UploadStatus
+		var uploadStatuses *[]UploadStatus
+		var us0 *UploadStatus
 		if result.TargetResults != nil {
-			// Only single upload target is allowed, therefore only a single upload target result is allowed as well
-			if len(result.TargetResults) != 1 {
-				return HTTPError(ErrorSeveralUploadTargets)
+			statuses := make([]UploadStatus, len(result.TargetResults))
+			for idx := range result.TargetResults {
+				tr := result.TargetResults[idx]
+				us, err := targetResultToUploadStatus(tr)
+				if err != nil {
+					return HTTPError(ErrorUnknownUploadTarget)
+				}
+				us.Status = uploadStatusFromJobStatus(jobInfo.JobStatus, result.JobError)
+				statuses[idx] = *us
 			}
-			tr := result.TargetResults[0]
-			us, err = targetResultToUploadStatus(tr)
-			if err != nil {
-				return HTTPError(ErrorUnknownUploadTarget)
+
+			if len(statuses) > 0 {
+				// make sure uploadStatuses remains nil if the array is empty but not nill
+				uploadStatuses = &statuses
+				// get first upload status if there's at least one
+				us0 = &statuses[0]
 			}
-			us.Status = uploadStatusFromJobStatus(jobInfo.JobStatus, result.JobError)
 		}
 
 		return ctx.JSON(http.StatusOK, ComposeStatus{
@@ -455,9 +469,10 @@ func (h *apiHandlers) getComposeStatusImpl(ctx echo.Context, id string) error {
 			},
 			Status: composeStatusFromOSBuildJobStatus(jobInfo.JobStatus, &result),
 			ImageStatus: ImageStatus{
-				Status:       imageStatusFromOSBuildJobStatus(jobInfo.JobStatus, &result),
-				Error:        composeStatusErrorFromJobError(jobError),
-				UploadStatus: us,
+				Status:         imageStatusFromOSBuildJobStatus(jobInfo.JobStatus, &result),
+				Error:          composeStatusErrorFromJobError(jobError),
+				UploadStatus:   us0, // add the first upload status to the old top-level field
+				UploadStatuses: uploadStatuses,
 			},
 		})
 	} else if jobType == worker.JobTypeKojiFinalize {
@@ -487,28 +502,37 @@ func (h *apiHandlers) getComposeStatusImpl(ctx echo.Context, id string) error {
 				return HTTPError(ErrorGettingBuildDependencyStatus)
 			}
 
-			var us *UploadStatus
-			// Only a single upload target in addition to Koji is allowed.
-			// Koji target is always added to osbuild jobs for Koji compose
-			// by the enqueueKojiCompose() function.
-			if len(buildJobResult.TargetResults) > 2 {
-				return HTTPError(ErrorSeveralUploadTargets)
-			}
-			for _, tr := range buildJobResult.TargetResults {
-				if tr.Name != target.TargetNameKoji {
-					us, err = targetResultToUploadStatus(tr)
-					if err != nil {
-						return HTTPError(ErrorUnknownUploadTarget)
+			var uploadStatuses *[]UploadStatus
+			var us0 *UploadStatus
+			if buildJobResult.TargetResults != nil {
+				// can't set the array size because koji targets wont be counted
+				statuses := make([]UploadStatus, 0, len(buildJobResult.TargetResults))
+				for idx := range buildJobResult.TargetResults {
+					tr := buildJobResult.TargetResults[idx]
+					if tr.Name != target.TargetNameKoji {
+						us, err := targetResultToUploadStatus(tr)
+						if err != nil {
+							return HTTPError(ErrorUnknownUploadTarget)
+						}
+						us.Status = uploadStatusFromJobStatus(buildInfo.JobStatus, result.JobError)
+						statuses = append(statuses, *us)
 					}
-					us.Status = uploadStatusFromJobStatus(buildInfo.JobStatus, result.JobError)
+				}
+
+				if len(statuses) > 0 {
+					// make sure uploadStatuses remains nil if the array is empty but not nill
+					uploadStatuses = &statuses
+					// get first upload status if there's at least one
+					us0 = &statuses[0]
 				}
 			}
 
 			buildJobResults = append(buildJobResults, buildJobResult)
 			buildJobStatuses = append(buildJobStatuses, ImageStatus{
-				Status:       imageStatusFromKojiJobStatus(buildInfo.JobStatus, &initResult, &buildJobResult),
-				Error:        composeStatusErrorFromJobError(buildJobError),
-				UploadStatus: us,
+				Status:         imageStatusFromKojiJobStatus(buildInfo.JobStatus, &initResult, &buildJobResult),
+				Error:          composeStatusErrorFromJobError(buildJobError),
+				UploadStatus:   us0, // add the first upload status to the old top-level field
+				UploadStatuses: uploadStatuses,
 			})
 		}
 		response := ComposeStatus{
