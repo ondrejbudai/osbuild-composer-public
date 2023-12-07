@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osbuild/images/pkg/platform"
+	"github.com/osbuild/images/pkg/arch"
 	"github.com/ondrejbudai/osbuild-composer-public/cmd/osbuild-image-tests/constants"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 )
@@ -138,7 +138,7 @@ func WithBootedQemuImage(image string, ns NetNS, f func() error) error {
 				"-nographic",
 				image,
 			)
-		} else if common.CurrentArch() == platform.ARCH_AARCH64.String() {
+		} else if common.CurrentArch() == arch.ARCH_AARCH64.String() {
 			// This command does not use KVM as I was unable to make it work in Beaker,
 			// once we have machines that can use KVM, enable it to make it faster
 			qemuCmd = ns.NamespacedCommand(
