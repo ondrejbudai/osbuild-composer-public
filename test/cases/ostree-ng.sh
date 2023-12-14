@@ -1,11 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
+# Get OS data.
+source /etc/os-release
+ARCH=$(uname -m)
+
 # Provision the software under test.
 /usr/libexec/osbuild-composer-test/provision.sh none
 
-# Get OS data.
-source /usr/libexec/osbuild-composer-test/set-env-variables.sh
 source /usr/libexec/tests/osbuild-composer/shared_lib.sh
 
 # workaround for bug https://bugzilla.redhat.com/show_bug.cgi?id=2213660
@@ -110,6 +112,13 @@ KERNEL_RT_PKG="kernel-rt"
 
 # Set up variables.
 SYSROOT_RO="false"
+
+# Set FIPS variable default
+FIPS="${FIPS:-false}"
+
+# Generate the user's password hash
+EDGE_USER_PASSWORD="${EDGE_USER_PASSWORD:-foobar}"
+EDGE_USER_PASSWORD_SHA512=$(openssl passwd -6 -stdin <<< "${EDGE_USER_PASSWORD}")
 
 case "${ID}-${VERSION_ID}" in
     fedora-*)
@@ -322,6 +331,9 @@ clean_up () {
     sudo virsh undefine "${IMAGE_KEY}-uefi" --nvram
     # Remove qcow2 file.
     sudo rm -f "$LIBVIRT_UEFI_IMAGE_PATH"
+    # Clear integration network
+    sudo virsh net-destroy integration
+    sudo virsh net-undefine integration
 
     # Remove any status containers if exist
     sudo podman ps -a -q --format "{{.ID}}" | sudo xargs --no-run-if-empty podman rm -f
@@ -399,7 +411,7 @@ version = "*"
 [[customizations.user]]
 name = "admin"
 description = "Administrator account"
-password = "\$6\$GRmb7S0p8vsYmXzH\$o0E020S.9JQGaHkszoog4ha4AQVs3sk8q0DvLjSMxoxHBKnB2FBXGQ/OkwZQfW/76ktHd0NX5nls2LPxPuUdl."
+password = "${EDGE_USER_PASSWORD_SHA512}"
 key = "${SSH_KEY_PUB}"
 home = "/home/admin/"
 groups = ["wheel"]
@@ -499,11 +511,20 @@ description = "A rhel-edge installer image"
 version = "0.0.1"
 modules = []
 groups = []
+EOF
 
+if [ "${FIPS}" == "true" ]; then
+    tee -a "$BLUEPRINT_FILE" > /dev/null << EOF
+[customizations]
+fips = ${FIPS}
+EOF
+fi
+
+tee -a "$BLUEPRINT_FILE" > /dev/null << EOF
 [[customizations.user]]
 name = "installeruser"
 description = "Added by installer blueprint"
-password = "\$6\$GRmb7S0p8vsYmXzH\$o0E020S.9JQGaHkszoog4ha4AQVs3sk8q0DvLjSMxoxHBKnB2FBXGQ/OkwZQfW/76ktHd0NX5nls2LPxPuUdl."
+password = "${EDGE_USER_PASSWORD_SHA512}"
 key = "${SSH_KEY_PUB}"
 home = "/home/installeruser/"
 groups = ["wheel"]
@@ -628,6 +649,7 @@ sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
     -e embeded_container="${EMBEDED_CONTAINER}" \
     -e test_custom_dirs_files="${DIRS_FILES_CUSTOMIZATION}" \
     -e sysroot_ro="$SYSROOT_RO" \
+    -e fips="${FIPS}" \
     /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
 check_result
 
@@ -717,6 +739,7 @@ sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
     -e embeded_container="${EMBEDED_CONTAINER}" \
     -e test_custom_dirs_files="${DIRS_FILES_CUSTOMIZATION}" \
     -e sysroot_ro="$SYSROOT_RO" \
+    -e fips="${FIPS}" \
     /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
 
 # Check image installation result
@@ -901,6 +924,7 @@ sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
     -e embeded_container="${EMBEDED_CONTAINER}" \
     -e test_custom_dirs_files="${DIRS_FILES_CUSTOMIZATION}" \
     -e sysroot_ro="$SYSROOT_RO" \
+    -e fips="${FIPS}" \
     /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
 check_result
 

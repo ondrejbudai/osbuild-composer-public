@@ -1,13 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
+# Get OS data.
+source /etc/os-release
+ARCH=$(uname -m)
+
 # Provision the software under test.
 /usr/libexec/osbuild-composer-test/provision.sh none
 
-# Get OS data.
-source /usr/libexec/osbuild-composer-test/set-env-variables.sh
 source /usr/libexec/tests/osbuild-composer/shared_lib.sh
-ARCH=$(uname -m)
 
 # Start libvirtd and test it.
 greenprint "🚀 Starting libvirt daemon"
@@ -44,10 +45,10 @@ EOF
 
 if ! sudo virsh net-info integration > /dev/null 2>&1; then
     sudo virsh net-define /tmp/integration.xml
-fi  
+fi
 if [[ $(sudo virsh net-info integration | grep 'Active' | awk '{print $2}') == 'no' ]]; then
     sudo virsh net-start integration
-fi  
+fi
 
 # Set up variables.
 TEST_UUID=$(uuidgen)
@@ -78,6 +79,15 @@ SSH_DATA_DIR=$(/usr/libexec/osbuild-composer-test/gen-ssh.sh)
 SSH_KEY=${SSH_DATA_DIR}/id_rsa
 SSH_KEY_PUB=$(cat "${SSH_KEY}".pub)
 IGNITION_USER=core
+IGNITION_USER_PASSWORD="${IGNITION_USER_PASSWORD:-foobar}"
+IGNITION_USER_PASSWORD_SHA512=$(openssl passwd -6 -stdin <<< "${IGNITION_USER_PASSWORD}")
+
+# Set FIPS variable default
+FIPS="${FIPS:-false}"
+
+# Generate the user's password hash
+EDGE_USER_PASSWORD="${EDGE_USER_PASSWORD:-foobar}"
+EDGE_USER_PASSWORD_SHA512=$(openssl passwd -6 -stdin <<< "${EDGE_USER_PASSWORD}")
 
 case "${ID}-${VERSION_ID}" in
     "rhel-9."*)
@@ -193,6 +203,10 @@ wait_for_ssh_up () {
 # Clean up our mess.
 clean_up () {
     greenprint "🧼 Cleaning up"
+
+    # Clear integration network
+    sudo virsh net-destroy integration
+    sudo virsh net-undefine integration
 
     # Remove any status containers if exist
     sudo podman ps -a -q --format "{{.ID}}" | sudo xargs --no-run-if-empty podman rm -f
@@ -478,7 +492,7 @@ sudo tee "$IGNITION_CONFIG_PATH" > /dev/null << EOF
           "wheel"
         ],
         "name": "$IGNITION_USER",
-        "passwordHash": "\$6\$GRmb7S0p8vsYmXzH\$o0E020S.9JQGaHkszoog4ha4AQVs3sk8q0DvLjSMxoxHBKnB2FBXGQ/OkwZQfW/76ktHd0NX5nls2LPxPuUdl.",
+        "passwordHash": "${IGNITION_USER_PASSWORD_SHA512}",
         "sshAuthorizedKeys": [
           "$SSH_KEY_PUB"
         ]
@@ -528,7 +542,7 @@ sudo tee "$IGNITION_CONFIG_SAMPLE_PATH" > /dev/null << EOF
 EOF
 sudo chmod +r "${IGNITION_CONFIG_SAMPLE_PATH}" "${IGNITION_CONFIG_PATH}"
 
-# Start AWS cli installation 
+# Start AWS cli installation
 curl "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o "awscliv2.zip"
 unzip awscliv2.zip > /dev/null
 sudo ./aws/install --update
@@ -575,11 +589,20 @@ description = "A rhel-edge ami"
 version = "0.0.1"
 modules = []
 groups = []
+EOF
 
+if [ "${FIPS}" == "true" ]; then
+    tee -a "$BLUEPRINT_FILE" > /dev/null << EOF
+[customizations]
+fips = ${FIPS}
+EOF
+fi
+
+tee -a "$BLUEPRINT_FILE" > /dev/null << EOF
 [[customizations.user]]
 name = "admin"
 description = "Administrator account"
-password = "\$6\$GRmb7S0p8vsYmXzH\$o0E020S.9JQGaHkszoog4ha4AQVs3sk8q0DvLjSMxoxHBKnB2FBXGQ/OkwZQfW/76ktHd0NX5nls2LPxPuUdl."
+password = "${EDGE_USER_PASSWORD_SHA512}"
 key = "${SSH_KEY_PUB}"
 home = "/home/admin/"
 groups = ["wheel"]
@@ -846,7 +869,7 @@ ansible_private_key_file=${SSH_KEY}
 ansible_ssh_common_args="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 ansible_become=yes
 ansible_become_method=sudo
-ansible_become_pass=${EDGE_USER_PASSWORD}
+ansible_become_pass=${IGNITION_USER_PASSWORD}
 EOF
 
 # Test IoT/Edge OS
@@ -856,6 +879,7 @@ sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
     -e edge_type=edge-ami-image \
     -e ostree_commit="${INSTALL_HASH}" \
     -e sysroot_ro="$SYSROOT_RO" \
+    -e fips="${FIPS}" \
     /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
 check_result
 
@@ -889,7 +913,7 @@ version = "*"
 [[customizations.user]]
 name = "admin"
 description = "Administrator account"
-password = "\$6\$GRmb7S0p8vsYmXzH\$o0E020S.9JQGaHkszoog4ha4AQVs3sk8q0DvLjSMxoxHBKnB2FBXGQ/OkwZQfW/76ktHd0NX5nls2LPxPuUdl."
+password = "${EDGE_USER_PASSWORD_SHA512}"
 home = "/home/admin/"
 groups = ["wheel"]
 EOF
@@ -974,12 +998,12 @@ sudo ssh \
     "${SSH_OPTIONS[@]}" \
     -i "${SSH_KEY}" \
     admin@"${PUBLIC_GUEST_ADDRESS}" \
-    "echo ${EDGE_USER_PASSWORD} |sudo -S ostree remote delete rhel-edge"
+    "echo '${EDGE_USER_PASSWORD}' |sudo -S ostree remote delete rhel-edge"
 sudo ssh \
     "${SSH_OPTIONS[@]}" \
     -i "${SSH_KEY}" \
     admin@"${PUBLIC_GUEST_ADDRESS}" \
-    "echo ${EDGE_USER_PASSWORD} |sudo -S ostree remote add --no-gpg-verify rhel-edge ${OBJECT_URL}/repo"
+    "echo '${EDGE_USER_PASSWORD}' |sudo -S ostree remote add --no-gpg-verify rhel-edge ${OBJECT_URL}/repo"
 
 # Upgrade image/commit.
 greenprint "🗳 Upgrade ostree image/commit"
@@ -987,12 +1011,12 @@ sudo ssh \
     "${SSH_OPTIONS[@]}" \
     -i "${SSH_KEY}" \
     admin@"${PUBLIC_GUEST_ADDRESS}" \
-    "echo ${EDGE_USER_PASSWORD} |sudo -S rpm-ostree upgrade"
+    "echo '${EDGE_USER_PASSWORD}' |sudo -S rpm-ostree upgrade"
 sudo ssh \
     "${SSH_OPTIONS[@]}" \
     -i "${SSH_KEY}" \
     admin@"${PUBLIC_GUEST_ADDRESS}" \
-    "echo ${EDGE_USER_PASSWORD} |nohup sudo -S systemctl reboot &>/dev/null & exit"
+    "echo '${EDGE_USER_PASSWORD}' |nohup sudo -S systemctl reboot &>/dev/null & exit"
 
 # Sleep 10 seconds here to make sure EC2 instance restarted already
 sleep 10
@@ -1023,7 +1047,7 @@ ansible_private_key_file=${SSH_KEY}
 ansible_ssh_common_args="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 ansible_become=yes
 ansible_become_method=sudo
-ansible_become_pass=${EDGE_USER_PASSWORD}
+ansible_become_pass=${IGNITION_USER_PASSWORD}
 EOF
 
 # Test IoT/Edge OS
@@ -1033,6 +1057,7 @@ sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
     -e edge_type=edge-ami-image \
     -e ostree_commit="${UPGRADE_HASH}" \
     -e sysroot_ro="$SYSROOT_RO" \
+    -e fips="${FIPS}" \
     /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
 check_result
 

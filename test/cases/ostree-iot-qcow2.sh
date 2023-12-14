@@ -1,15 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
-# Provision the software under test.
-/usr/libexec/osbuild-composer-test/provision.sh none
-
-source /usr/libexec/tests/osbuild-composer/shared_lib.sh
-
 # Get OS data.
 source /etc/os-release
 ARCH=$(uname -m)
 
+# Provision the software under test.
+/usr/libexec/osbuild-composer-test/provision.sh none
+
+source /usr/libexec/tests/osbuild-composer/shared_lib.sh
 
 # Start libvirtd and test it.
 greenprint "🚀 Starting libvirt daemon"
@@ -206,6 +205,9 @@ clean_up () {
     sudo virsh undefine "${IMAGE_KEY}-uefi" --nvram
     # Remove qcow2 file.
     sudo rm -f "$LIBVIRT_IMAGE_PATH"
+    # Clear integration network
+    sudo virsh net-destroy integration
+    sudo virsh net-undefine integration
 
     # Remove any status containers if exist
     sudo podman ps -a -q --format "{{.ID}}" | sudo xargs --no-run-if-empty podman rm -f

@@ -2,7 +2,9 @@
 set -euo pipefail
 
 # Get OS data.
-source /usr/libexec/osbuild-composer-test/set-env-variables.sh
+source /etc/os-release
+ARCH=$(uname -m)
+
 source /usr/libexec/tests/osbuild-composer/shared_lib.sh
 
 # Get compose url if it's running on unsubscried RHEL
@@ -224,6 +226,10 @@ clean_up () {
     fi
     # Remove qcow2 file.
     sudo rm -f "$LIBVIRT_IMAGE_PATH"
+    # Clear integration network
+    sudo virsh net-destroy integration
+    sudo virsh net-undefine integration
+
     # Remomve tmp dir.
     sudo rm -rf "$TEMPDIR"
     # Stop httpd

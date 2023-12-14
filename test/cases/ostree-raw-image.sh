@@ -1,14 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
+# Get OS data.
+source /etc/os-release
+ARCH=$(uname -m)
+
 # Provision the software under test.
 /usr/libexec/osbuild-composer-test/provision.sh none
 
 source /usr/libexec/tests/osbuild-composer/shared_lib.sh
-
-# Get OS data.
-source /etc/os-release
-ARCH=$(uname -m)
 
 # workaround for bug https://bugzilla.redhat.com/show_bug.cgi?id=2213660
 if [[ "$VERSION_ID" == "9.3"  || "$VERSION_ID" == "9" ]]; then
@@ -103,6 +103,12 @@ KERNEL_RT_PKG="kernel-rt"
 # Set up variables.
 SYSROOT_RO="false"
 CUSTOM_DIRS_FILES="false"
+
+# Set FIPS variable default
+FIPS="${FIPS:-false}"
+
+# Generate the user's password hash
+EDGE_USER_PASSWORD_SHA512=$(openssl passwd -6 -stdin <<< "${EDGE_USER_PASSWORD:-foobar}")
 
 case "${ID}-${VERSION_ID}" in
     "rhel-8"* )
@@ -248,6 +254,9 @@ clean_up () {
     sudo virsh undefine "${IMAGE_KEY}-uefi" --nvram
     # Remove qcow2 file.
     sudo rm -f "$LIBVIRT_IMAGE_PATH"
+    # Clear integration network
+    sudo virsh net-destroy integration
+    sudo virsh net-undefine integration
 
     # Remove any status containers if exist
     sudo podman ps -a -q --format "{{.ID}}" | sudo xargs --no-run-if-empty podman rm -f
@@ -347,7 +356,7 @@ if [[ "$USER_IN_RAW" == "false" ]]; then
 [[customizations.user]]
 name = "admin"
 description = "Administrator account"
-password = "\$6\$GRmb7S0p8vsYmXzH\$o0E020S.9JQGaHkszoog4ha4AQVs3sk8q0DvLjSMxoxHBKnB2FBXGQ/OkwZQfW/76ktHd0NX5nls2LPxPuUdl."
+password = "${EDGE_USER_PASSWORD_SHA512}"
 key = "${SSH_KEY_PUB}"
 home = "/home/admin/"
 groups = ["wheel"]
@@ -418,6 +427,13 @@ modules = []
 groups = []
 EOF
 
+if [ "${FIPS}" == "true" ]; then
+    tee -a "$BLUEPRINT_FILE" >> /dev/null << EOF
+[customizations]
+fips = ${FIPS}
+EOF
+fi
+
 # User in raw image blueprint is not for RHEL 9.1 and 8.7
 # Workaround for RHEL 9.1 and 8.7 nightly test
 if [[ "$USER_IN_RAW" == "true" ]]; then
@@ -425,7 +441,7 @@ if [[ "$USER_IN_RAW" == "true" ]]; then
 [[customizations.user]]
 name = "admin"
 description = "Administrator account"
-password = "\$6\$GRmb7S0p8vsYmXzH\$o0E020S.9JQGaHkszoog4ha4AQVs3sk8q0DvLjSMxoxHBKnB2FBXGQ/OkwZQfW/76ktHd0NX5nls2LPxPuUdl."
+password = "${EDGE_USER_PASSWORD_SHA512}"
 key = "${SSH_KEY_PUB}"
 home = "/home/admin/"
 groups = ["wheel"]
@@ -573,6 +589,7 @@ EOF
         -e ostree_commit="${INSTALL_HASH}" \
         -e sysroot_ro="$SYSROOT_RO" \
         -e test_custom_dirs_files="$CUSTOM_DIRS_FILES" \
+        -e fips="${FIPS}" \
         /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
     check_result
 
@@ -606,7 +623,7 @@ name = "${KERNEL_RT_PKG}"
 [[customizations.user]]
 name = "admin"
 description = "Administrator account"
-password = "\$6\$GRmb7S0p8vsYmXzH\$o0E020S.9JQGaHkszoog4ha4AQVs3sk8q0DvLjSMxoxHBKnB2FBXGQ/OkwZQfW/76ktHd0NX5nls2LPxPuUdl."
+password = "${EDGE_USER_PASSWORD_SHA512}"
 home = "/home/admin/"
 groups = ["wheel"]
 EOF
@@ -697,8 +714,8 @@ EOF
 
     # Rebase image/commit.
     greenprint "🗳 Rebase ostree image/commit"
-    sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${BIOS_GUEST_ADDRESS} "echo ${EDGE_USER_PASSWORD} |sudo -S rpm-ostree rebase ${REF_PREFIX}:${OSTREE_REF}"
-    sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${BIOS_GUEST_ADDRESS} "echo ${EDGE_USER_PASSWORD} |nohup sudo -S systemctl reboot &>/dev/null & exit"
+    sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${BIOS_GUEST_ADDRESS} "echo '${EDGE_USER_PASSWORD}' |sudo -S rpm-ostree rebase ${REF_PREFIX}:${OSTREE_REF}"
+    sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${BIOS_GUEST_ADDRESS} "echo '${EDGE_USER_PASSWORD}' |nohup sudo -S systemctl reboot &>/dev/null & exit"
 
     # Sleep 10 seconds here to make sure vm restarted already
     sleep 10
@@ -740,6 +757,7 @@ EOF
         -e ostree_commit="${REBASE_HASH}" \
         -e sysroot_ro="$SYSROOT_RO" \
         -e test_custom_dirs_files="$CUSTOM_DIRS_FILES" \
+        -e fips="${FIPS}" \
         /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
 
     check_result
@@ -845,6 +863,7 @@ sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
     -e ostree_commit="${INSTALL_HASH}" \
     -e sysroot_ro="$SYSROOT_RO" \
     -e test_custom_dirs_files="$CUSTOM_DIRS_FILES" \
+    -e fips="${FIPS}" \
     /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
 check_result
 
@@ -891,7 +910,7 @@ if [[ "$USER_IN_RAW" == "false" ]]; then
 [[customizations.user]]
 name = "admin"
 description = "Administrator account"
-password = "\$6\$GRmb7S0p8vsYmXzH\$o0E020S.9JQGaHkszoog4ha4AQVs3sk8q0DvLjSMxoxHBKnB2FBXGQ/OkwZQfW/76ktHd0NX5nls2LPxPuUdl."
+password = "${EDGE_USER_PASSWORD_SHA512}"
 home = "/home/admin/"
 groups = ["wheel"]
 EOF
@@ -986,14 +1005,14 @@ if [[ "$ID" == "fedora" ]]; then
     # The Fedora IoT Raw image sets the fedora-iot remote URL to https://ostree.fedoraproject.org/iot
     # Replacing with our own local repo
     greenprint "Replacing default remote"
-    sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${UEFI_GUEST_ADDRESS} "echo ${EDGE_USER_PASSWORD} |sudo -S ostree remote delete ${OSTREE_OSNAME}"
-    sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${UEFI_GUEST_ADDRESS} "echo ${EDGE_USER_PASSWORD} |sudo -S ostree remote add --no-gpg-verify ${OSTREE_OSNAME} ${PROD_REPO_URL}"
+    sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${UEFI_GUEST_ADDRESS} "echo '${EDGE_USER_PASSWORD}' |sudo -S ostree remote delete ${OSTREE_OSNAME}"
+    sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${UEFI_GUEST_ADDRESS} "echo '${EDGE_USER_PASSWORD}' |sudo -S ostree remote add --no-gpg-verify ${OSTREE_OSNAME} ${PROD_REPO_URL}"
 fi
 
 # Upgrade image/commit.
 greenprint "🗳 Upgrade ostree image/commit"
-sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${UEFI_GUEST_ADDRESS} "echo ${EDGE_USER_PASSWORD} |sudo -S rpm-ostree upgrade"
-sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${UEFI_GUEST_ADDRESS} "echo ${EDGE_USER_PASSWORD} |nohup sudo -S systemctl reboot &>/dev/null & exit"
+sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${UEFI_GUEST_ADDRESS} "echo '${EDGE_USER_PASSWORD}' |sudo -S rpm-ostree upgrade"
+sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${UEFI_GUEST_ADDRESS} "echo '${EDGE_USER_PASSWORD}' |nohup sudo -S systemctl reboot &>/dev/null & exit"
 
 # Sleep 10 seconds here to make sure vm restarted already
 sleep 10
@@ -1036,6 +1055,7 @@ sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
     -e ostree_commit="${UPGRADE_HASH}" \
     -e sysroot_ro="$SYSROOT_RO" \
     -e test_custom_dirs_files="$CUSTOM_DIRS_FILES" \
+    -e fips="${FIPS}" \
     /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
 check_result
 

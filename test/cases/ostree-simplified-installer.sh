@@ -1,12 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
-# Provision the software under test.
-/usr/libexec/osbuild-composer-test/provision.sh none
-
 # Get OS data.
 source /etc/os-release
 ARCH=$(uname -m)
+
+# Provision the software under test.
+/usr/libexec/osbuild-composer-test/provision.sh none
 
 source /usr/libexec/tests/osbuild-composer/shared_lib.sh
 
@@ -124,6 +124,12 @@ KERNEL_RT_PKG="kernel-rt"
 SYSROOT_RO="false"
 ANSIBLE_USER="admin"
 FDO_USER_ONBOARDING="false"
+
+# Set FIPS variable default
+FIPS="${FIPS:-false}"
+
+# Generate the user's password hash
+EDGE_USER_PASSWORD_SHA512=$(openssl passwd -6 -stdin <<< "${EDGE_USER_PASSWORD:-foobar}")
 
 case "${ID}-${VERSION_ID}" in
     "rhel-8"* )
@@ -287,6 +293,10 @@ wait_for_fdo () {
 clean_up () {
     greenprint "🧼 Cleaning up"
 
+    # Clear integration network
+    sudo virsh net-destroy integration
+    sudo virsh net-undefine integration
+
     # Remove any status containers if exist
     sudo podman ps -a -q --format "{{.ID}}" | sudo xargs --no-run-if-empty podman rm -f
     # Remove all images
@@ -373,7 +383,7 @@ name = "${KERNEL_RT_PKG}"
 [[customizations.user]]
 name = "admin"
 description = "Administrator account"
-password = "\$6\$GRmb7S0p8vsYmXzH\$o0E020S.9JQGaHkszoog4ha4AQVs3sk8q0DvLjSMxoxHBKnB2FBXGQ/OkwZQfW/76ktHd0NX5nls2LPxPuUdl."
+password = "${EDGE_USER_PASSWORD_SHA512}"
 key = "${SSH_KEY_PUB}"
 home = "/home/admin/"
 groups = ["wheel"]
@@ -436,7 +446,7 @@ groups = []
 [[customizations.user]]
 name = "simple"
 description = "Administrator account"
-password = "\$6\$GRmb7S0p8vsYmXzH\$o0E020S.9JQGaHkszoog4ha4AQVs3sk8q0DvLjSMxoxHBKnB2FBXGQ/OkwZQfW/76ktHd0NX5nls2LPxPuUdl."
+password = "${EDGE_USER_PASSWORD_SHA512}"
 key = "${SSH_KEY_PUB}"
 home = "/home/simple/"
 groups = ["wheel"]
@@ -444,6 +454,12 @@ groups = ["wheel"]
 [customizations]
 installation_device = "/dev/vda"
 EOF
+
+if [ "${FIPS}" == "true" ]; then
+    tee -a "$BLUEPRINT_FILE" >> /dev/null << EOF
+fips = ${FIPS}
+EOF
+fi
 
 greenprint "📄 simplified_iso_without_fdo blueprint"
 cat "$BLUEPRINT_FILE"
@@ -507,7 +523,7 @@ for _ in $(seq 0 30); do
 done
 
 # With new ostree-libs-2022.6-3, edge vm needs to reboot twice to make the /sysroot readonly
-sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" "simple@${EDGE_GUEST_ADDRESS}" "echo ${EDGE_USER_PASSWORD} |nohup sudo -S systemctl reboot &>/dev/null & exit"
+sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" "simple@${EDGE_GUEST_ADDRESS}" "echo '${EDGE_USER_PASSWORD}' |nohup sudo -S systemctl reboot &>/dev/null & exit"
 # Sleep 10 seconds here to make sure vm restarted already
 sleep 10
 for _ in $(seq 0 30); do
@@ -547,6 +563,7 @@ sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
     -e edge_type=edge-simplified-installer \
     -e fdo_credential="false" \
     -e sysroot_ro="$SYSROOT_RO" \
+    -e fips="${FIPS}" \
     /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
 check_result
 
@@ -569,14 +586,21 @@ description = "A rhel-edge simplified-installer image"
 version = "0.0.1"
 modules = []
 groups = []
-
 [customizations]
 installation_device = "/dev/vda"
+EOF
 
+if [ "${FIPS}" == "true" ]; then
+    tee -a "$BLUEPRINT_FILE" >> /dev/null << EOF
+fips = ${FIPS}
+EOF
+fi
+
+tee -a "$BLUEPRINT_FILE" >> /dev/null << EOF
 [[customizations.user]]
 name = "simple"
 description = "Administrator account"
-password = "\$6\$GRmb7S0p8vsYmXzH\$o0E020S.9JQGaHkszoog4ha4AQVs3sk8q0DvLjSMxoxHBKnB2FBXGQ/OkwZQfW/76ktHd0NX5nls2LPxPuUdl."
+password = "${EDGE_USER_PASSWORD_SHA512}"
 key = "${SSH_KEY_PUB}"
 home = "/home/simple/"
 groups = ["wheel"]
@@ -706,7 +730,7 @@ ansible_python_interpreter=/usr/bin/python3
 ansible_user=simple
 ansible_private_key_file=${SSH_KEY}
 ansible_ssh_common_args="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-ansible_become=yes 
+ansible_become=yes
 ansible_become_method=sudo
 ansible_become_pass=${EDGE_USER_PASSWORD}
 EOF
@@ -719,6 +743,7 @@ sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
     -e edge_type=edge-simplified-installer \
     -e fdo_credential="true" \
     -e sysroot_ro="$SYSROOT_RO" \
+    -e fips="${FIPS}" \
     /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
 check_result
 
@@ -748,7 +773,15 @@ groups = []
 
 [customizations]
 installation_device = "/dev/vda"
+EOF
 
+if [ "${FIPS}" == "true" ]; then
+    tee -a "$BLUEPRINT_FILE" >> /dev/null << EOF
+fips = ${FIPS}
+EOF
+fi
+
+tee -a "$BLUEPRINT_FILE" >> /dev/null << EOF
 [customizations.fdo]
 manufacturing_server_url="http://${FDO_SERVER_ADDRESS}:8080"
 diun_pub_key_hash="${DIUN_PUB_KEY_HASH}"
@@ -871,7 +904,7 @@ ansible_python_interpreter=/usr/bin/python3
 ansible_user=${ANSIBLE_USER}
 ansible_private_key_file=${SSH_KEY}
 ansible_ssh_common_args="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-ansible_become=yes 
+ansible_become=yes
 ansible_become_method=sudo
 ansible_become_pass=${EDGE_USER_PASSWORD}
 EOF
@@ -889,6 +922,7 @@ sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
     -e edge_type=edge-simplified-installer \
     -e fdo_credential="true" \
     -e sysroot_ro="$SYSROOT_RO" \
+    -e fips="${FIPS}" \
     /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
 check_result
 
@@ -922,7 +956,7 @@ name = "${KERNEL_RT_PKG}"
 [[customizations.user]]
 name = "admin"
 description = "Administrator account"
-password = "\$6\$GRmb7S0p8vsYmXzH\$o0E020S.9JQGaHkszoog4ha4AQVs3sk8q0DvLjSMxoxHBKnB2FBXGQ/OkwZQfW/76ktHd0NX5nls2LPxPuUdl."
+password = "${EDGE_USER_PASSWORD_SHA512}"
 home = "/home/admin/"
 groups = ["wheel"]
 EOF
@@ -982,8 +1016,8 @@ sudo composer-cli compose delete "${COMPOSE_ID}" > /dev/null
 sudo composer-cli blueprints delete rebase > /dev/null
 
 greenprint "🗳 Rebase ostree image/commit"
-sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${EDGE_GUEST_ADDRESS} "echo ${EDGE_USER_PASSWORD} |sudo -S rpm-ostree rebase ${REF_PREFIX}:${OSTREE_REF}"
-sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${EDGE_GUEST_ADDRESS} "echo ${EDGE_USER_PASSWORD} |nohup sudo -S systemctl reboot &>/dev/null & exit"
+sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${EDGE_GUEST_ADDRESS} "echo '${EDGE_USER_PASSWORD}' |sudo -S rpm-ostree rebase ${REF_PREFIX}:${OSTREE_REF}"
+sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${EDGE_GUEST_ADDRESS} "echo '${EDGE_USER_PASSWORD}' |nohup sudo -S systemctl reboot &>/dev/null & exit"
 
 # Sleep 10 seconds here to make sure vm restarted already
 sleep 10
@@ -1026,6 +1060,7 @@ sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
     -e edge_type=edge-simplified-installer \
     -e fdo_credential="true" \
     -e sysroot_ro="$SYSROOT_RO" \
+    -e fips="${FIPS}" \
     /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
 
 check_result
@@ -1062,7 +1097,15 @@ groups = []
 
 [customizations]
 installation_device = "/dev/vda"
+EOF
 
+if [ "${FIPS}" == "true" ]; then
+    tee -a "$BLUEPRINT_FILE" >> /dev/null << EOF
+fips = ${FIPS}
+EOF
+fi
+
+tee -a "$BLUEPRINT_FILE" >> /dev/null << EOF
 [customizations.fdo]
 manufacturing_server_url="http://${FDO_SERVER_ADDRESS}:8080"
 diun_pub_key_root_certs="""
@@ -1172,7 +1215,7 @@ ansible_python_interpreter=/usr/bin/python3
 ansible_user=admin
 ansible_private_key_file=${SSH_KEY}
 ansible_ssh_common_args="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-ansible_become=yes 
+ansible_become=yes
 ansible_become_method=sudo
 ansible_become_pass=${EDGE_USER_PASSWORD}
 EOF
@@ -1185,6 +1228,7 @@ sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
     -e edge_type=edge-simplified-installer \
     -e fdo_credential="true" \
     -e sysroot_ro="$SYSROOT_RO" \
+    -e fips="${FIPS}" \
     /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
 check_result
 
@@ -1221,7 +1265,7 @@ name = "${KERNEL_RT_PKG}"
 [[customizations.user]]
 name = "admin"
 description = "Administrator account"
-password = "\$6\$GRmb7S0p8vsYmXzH\$o0E020S.9JQGaHkszoog4ha4AQVs3sk8q0DvLjSMxoxHBKnB2FBXGQ/OkwZQfW/76ktHd0NX5nls2LPxPuUdl."
+password = "${EDGE_USER_PASSWORD_SHA512}"
 home = "/home/admin/"
 groups = ["wheel"]
 EOF
@@ -1282,8 +1326,8 @@ sudo composer-cli compose delete "${COMPOSE_ID}" > /dev/null
 sudo composer-cli blueprints delete upgrade > /dev/null
 
 greenprint "🗳 Upgrade ostree image/commit"
-sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${EDGE_GUEST_ADDRESS} "echo ${EDGE_USER_PASSWORD} |sudo -S rpm-ostree upgrade"
-sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${EDGE_GUEST_ADDRESS} "echo ${EDGE_USER_PASSWORD} |nohup sudo -S systemctl reboot &>/dev/null & exit"
+sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${EDGE_GUEST_ADDRESS} "echo '${EDGE_USER_PASSWORD}' |sudo -S rpm-ostree upgrade"
+sudo ssh "${SSH_OPTIONS[@]}" -i "${SSH_KEY}" admin@${EDGE_GUEST_ADDRESS} "echo '${EDGE_USER_PASSWORD}' |nohup sudo -S systemctl reboot &>/dev/null & exit"
 
 # Sleep 10 seconds here to make sure vm restarted already
 sleep 10
@@ -1326,6 +1370,7 @@ sudo ansible-playbook -v -i "${TEMPDIR}"/inventory \
     -e edge_type=edge-simplified-installer \
     -e fdo_credential="true" \
     -e sysroot_ro="$SYSROOT_RO" \
+    -e fips="${FIPS}" \
     /usr/share/tests/osbuild-composer/ansible/check_ostree.yaml || RESULTS=0
 
 check_result
