@@ -163,9 +163,9 @@ func (s *Server) WatchWorkers() {
 			logrus.Warningf("Unable to query workers: %v", err)
 			continue
 		}
-		for _, wID := range workers {
-			logrus.Infof("Removing inactive worker: %s", wID)
-			err = s.jobs.DeleteWorker(wID)
+		for _, w := range workers {
+			logrus.Infof("Removing inactive worker: %s", w.ID)
+			err = s.jobs.DeleteWorker(w.ID)
 			if err != nil {
 				logrus.Warningf("Unable to remove worker: %v", err)
 			}
@@ -823,6 +823,28 @@ func (s *Server) RequeueOrFinishJob(token uuid.UUID, maxRetries uint64, result j
 	return nil
 }
 
+func (s *Server) RegisterWorker(a string) (uuid.UUID, error) {
+	workerID, err := s.jobs.InsertWorker(a)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	logrus.Infof("Worker (%v) registered", a)
+	return workerID, nil
+}
+
+func (s *Server) WorkerAvailableForArch(a string) (bool, error) {
+	workers, err := s.jobs.Workers(0)
+	if err != nil {
+		return false, err
+	}
+	for _, w := range workers {
+		if a == w.Arch {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // apiHandlers implements api.ServerInterface - the http api route handlers
 // generated from api/openapi.yml. This is a separate object, because these
 // handlers should not be exposed on the `Server` object.
@@ -1037,11 +1059,10 @@ func (h *apiHandlers) PostWorkers(ctx echo.Context) error {
 		return err
 	}
 
-	workerID, err := h.server.jobs.InsertWorker(body.Arch)
+	workerID, err := h.server.RegisterWorker(body.Arch)
 	if err != nil {
 		return api.HTTPErrorWithInternal(api.ErrorInsertingWorker, err)
 	}
-	logrus.Infof("Worker (%v) registered", body.Arch)
 
 	return ctx.JSON(http.StatusCreated, api.PostWorkersResponse{
 		ObjectReference: api.ObjectReference{
