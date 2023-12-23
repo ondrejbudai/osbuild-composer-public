@@ -6,6 +6,7 @@
 APISOCKET=/run/weldr/api.socket
 
 source /etc/os-release
+source /usr/libexec/tests/osbuild-composer/shared_lib.sh
 
 # Build a grep pattern that results in an empty string when the expected distros are installed
 case $ID in
@@ -115,6 +116,14 @@ ALL_EXPECTED_DISTROS=$(echo "$ALL_DISTROS" | grep -E "$PATTERN" | grep -Ev 'beta
 # expected in the test snippet further below
 ALL_REMAINDERS=$(echo "$ALL_DISTROS" | grep -vw "$RECOGNIZED_DISTROS")
 
+echo "DEBUG: ===== ALL_DISTROS ===="
+echo "$ALL_DISTROS"
+echo "DEBUG: ===== ALL_EXPECTED_DISTROS ===="
+echo "$ALL_EXPECTED_DISTROS"
+echo "DEBUG: ===== ALL_REMAINDERS ===="
+echo "$ALL_REMAINDERS"
+echo "DEBUG: ===== END ===="
+
 # Check for any missing distros based on the expected host pattern
 if [ "$ALL_EXPECTED_DISTROS" != "$INSTALLED_DISTROS" ];then
     echo "Some distros are missing!"
@@ -130,8 +139,11 @@ if [ "$ALL_EXPECTED_DISTROS" != "$INSTALLED_DISTROS" ];then
     fi
 fi
 
+echo "INFO: Start interating over ALL_REMAINDERS"
 # Push a blueprint with unsupported distro to see if composer fails gracefuly
 for REMAINING_DISTRO in $ALL_REMAINDERS; do
+    echo "INFO: iterating over $REMAINING_DISTRO"
+
     TEST_BP=blueprint.toml
     tee "$TEST_BP" > /dev/null << EOF
 name = "bash"
@@ -142,11 +154,20 @@ distro= "$REMAINING_DISTRO"
 [[packages]]
 name = "bash"
 EOF
+
+    set +e
     RESPONSE=$(sudo composer-cli blueprints push $TEST_BP 2>&1)
+    set -e
+
+    echo "DEBUG: $REMAINING_DISTRO, RESPONSE=$RESPONSE"
 
     # there is a different reponse if legacy composer-cli is used
     if rpm -q --quiet weldr-client; then
-        EXPECTED_RESPONSE="ERROR: BlueprintsError: '$REMAINING_DISTRO' is not a valid distribution (architecture '$(uname -m)')"
+        if nvrGreaterOrEqual "osbuild-composer" "97"; then
+            EXPECTED_RESPONSE="ERROR: BlueprintsError: '$REMAINING_DISTRO' is not a valid distribution (architecture '$(uname -m)')"
+        else
+            EXPECTED_RESPONSE="ERROR: BlueprintsError: '$REMAINING_DISTRO' is not a valid distribution"
+        fi
     else
         EXPECTED_RESPONSE="'$REMAINING_DISTRO' is not a valid distribution"
         RESPONSE=${RESPONSE#*: }
