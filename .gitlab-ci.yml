@@ -96,10 +96,10 @@ RPM:
   parallel:
     matrix:
       - RUNNER:
-          - aws/fedora-37-x86_64
-          - aws/fedora-37-aarch64
           - aws/fedora-38-x86_64
           - aws/fedora-38-aarch64
+          - aws/fedora-39-x86_64
+          - aws/fedora-39-aarch64
           - aws/fedora-40-x86_64
           - aws/fedora-40-aarch64
           - aws/rhel-8.4-ga-x86_64
@@ -184,10 +184,10 @@ Base:
   parallel:
     matrix:
       - RUNNER:
-          - aws/fedora-37-x86_64
-          - aws/fedora-37-aarch64
           - aws/fedora-38-x86_64
           - aws/fedora-38-aarch64
+          - aws/fedora-39-x86_64
+          - aws/fedora-39-aarch64
           - aws/rhel-8.4-ga-x86_64
           - aws/rhel-8.4-ga-aarch64
           - aws/rhel-8.8-ga-x86_64
@@ -217,10 +217,10 @@ Base:
   parallel:
     matrix:
       - RUNNER:
-          - aws/fedora-37-x86_64
-          - aws/fedora-37-aarch64
           - aws/fedora-38-x86_64
           - aws/fedora-38-aarch64
+          - aws/fedora-39-x86_64
+          - aws/fedora-39-aarch64
           - aws/centos-stream-8-x86_64
           - aws/centos-stream-8-aarch64
       - RUNNER:
@@ -373,8 +373,8 @@ Trigger-rhel-edge-ci:
 
 .fedora_runners: &fedora_runners
     RUNNER:
-      - aws/fedora-37-x86_64
       - aws/fedora-38-x86_64
+      - aws/fedora-39-x86_64
 
 .integration_fedora:
   extends: .integration_base
@@ -486,6 +486,14 @@ vmware.sh_ova:
 
 filesystem.sh:
   extends: .integration
+  parallel:
+    matrix:
+    - RUNNER:
+      # don't execute on fedora-39 yet until https://lkml.kernel.org/linux-xfs/20230823220225.3591135-1-david@fromorbit.com/#t is in the kernel
+      # see also https://github.com/osbuild/osbuild-composer/pull/3820#issuecomment-1881587335 for more details
+      - aws/fedora-38-x86_64
+    - *rhel_runners
+
   variables:
     SCRIPT: filesystem.sh
 
@@ -526,8 +534,8 @@ API:
         INTERNAL_NETWORK: ["true"]
       - IMAGE_TYPE: ["iot-commit"]
         RUNNER:
-          - aws/fedora-37-x86_64
           - aws/fedora-38-x86_64
+          - aws/fedora-39-x86_64
       - IMAGE_TYPE: ["aws"]
         RUNNER:
           - aws/rhel-8.8-ga-aarch64
@@ -572,8 +580,8 @@ API-module-hotfixes:
   parallel:
     matrix:
       - RUNNER:
-          - rhos-01/fedora-37-x86_64
           - rhos-01/fedora-38-x86_64
+          # - rhos-01/fedora-39-x86_64
       - RUNNER:
           - gcp/centos-stream-8-x86_64
           - gcp/rhel-8.8-ga-x86_64
@@ -737,8 +745,8 @@ ContainerUpload:
   parallel:
     matrix:
       - RUNNER:
-          - aws/fedora-37-x86_64
           - aws/fedora-38-x86_64
+          - aws/fedora-39-x86_64
 
 ContainerEmbedding:
   stage: test

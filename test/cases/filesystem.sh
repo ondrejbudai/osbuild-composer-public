@@ -181,7 +181,7 @@ mountpoint = "/boot"
 size = 131072000
 EOF
 
-if not nvrGreaterOrEqual "osbuild-composer" "94"; then
+if ! nvrGreaterOrEqual "osbuild-composer" "94"; then
     tee -a "$BLUEPRINT_FILE" > /dev/null << EOF
 
 [[customizations.filesystem]]
@@ -202,7 +202,11 @@ sudo composer-cli compose image "${COMPOSE_ID}" > /dev/null
 IMAGE_FILENAME="${COMPOSE_ID}-disk.qcow2"
 
 greenprint "💬 Checking mountpoints"
-INFO="$(sudo /usr/libexec/osbuild-composer-test/image-info "${IMAGE_FILENAME}")"
+if ! INFO="$(sudo /usr/libexec/osbuild-composer-test/image-info "${IMAGE_FILENAME}")"; then
+    echo "ERROR image-info failed, show last few kernel message to debug"
+    dmesg | tail -n10
+    exit 2
+fi
 FAILED_MOUNTPOINTS=()
 
 for MOUNTPOINT in '/' '/var' '/var/log' '/var/log/audit' '/var/tmp' '/usr' '/tmp' '/home' '/opt' '/srv' '/app' '/data'; do
@@ -289,7 +293,7 @@ mountpoint = "/sysroot"
 size = 131072000
 EOF
 
-if not nvrGreaterOrEqual "osbuild-composer" "94"; then
+if ! nvrGreaterOrEqual "osbuild-composer" "94"; then
     tee -a "$BLUEPRINT_FILE" > /dev/null << EOF
 
 [[customizations.filesystem]]
@@ -319,7 +323,7 @@ for MOUNTPOINT in '/etc' '/sys' '/proc' '/dev' '/run' '/bin' '/sbin' '/lib' '/li
   fi
 done
 
-if not nvrGreaterOrEqual "osbuild-composer" "94"; then
+if ! nvrGreaterOrEqual "osbuild-composer" "94"; then
   for MOUNTPOINT in '/usr/bin' '/var/run' '/var/lock'; do
     if ! [[ $ERROR_MSG == *"$MOUNTPOINT"* ]]; then
       FAILED_MOUNTPOINTS+=("$MOUNTPOINT")
