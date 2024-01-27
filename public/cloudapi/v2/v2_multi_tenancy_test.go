@@ -16,7 +16,7 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/pkg/jobqueue"
 
 	"github.com/osbuild/images/pkg/distro/test_distro"
-	"github.com/ondrejbudai/osbuild-composer-public/public/cloudapi/v2"
+	v2 "github.com/ondrejbudai/osbuild-composer-public/public/cloudapi/v2"
 	"github.com/ondrejbudai/osbuild-composer-public/public/test"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"
 )
@@ -43,7 +43,7 @@ func kojiRequest() string {
 				"version":"1",
 				"release":"2"
 			}
-		}`, test_distro.TestDistroName, test_distro.TestArch3Name, string(v2.ImageTypesGuestImage))
+		}`, test_distro.TestDistro1Name, test_distro.TestArch3Name, string(v2.ImageTypesGuestImage))
 }
 
 func s3Request() string {
@@ -64,7 +64,7 @@ func s3Request() string {
 					}
 				}
 			]
-		}`, test_distro.TestDistroName, test_distro.TestArch3Name, string(v2.ImageTypesGuestImage))
+		}`, test_distro.TestDistro1Name, test_distro.TestArch3Name, string(v2.ImageTypesGuestImage))
 }
 
 var reqContextCallCount = 0

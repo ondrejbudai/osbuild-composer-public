@@ -2,6 +2,7 @@
 set -euxo pipefail
 
 source /usr/libexec/osbuild-composer-test/set-env-variables.sh
+source /usr/libexec/tests/osbuild-composer/shared_lib.sh
 
 # create artifacts folder
 ARTIFACTS="${ARTIFACTS:=/tmp/artifacts}"
@@ -13,6 +14,17 @@ AUTH_METHOD_JWT="jwt"
 AUTH_METHOD_NONE="none"
 # default to TLS for now
 AUTH_METHOD="${1:-$AUTH_METHOD_TLS}"
+
+COMPOSER_CONFIG="/etc/osbuild-composer/osbuild-composer.toml"
+
+# Path to a file with additional configuration for composer.
+# The content of this file will be appended to the default configuration.
+EXTRA_COMPOSER_CONFIG="${2:-}"
+
+if [[ -n "${EXTRA_COMPOSER_CONFIG}" && ! -f "${EXTRA_COMPOSER_CONFIG}" ]]; then
+    echo "ERROR: File '${EXTRA_COMPOSER_CONFIG}' with extra configuration for composer does not exist."
+    exit 1
+fi
 
 # koji and ansible are not in RHEL repositories. Depending on them in the spec
 # file breaks RHEL gating (see OSCI-1541). Therefore, we need to enable epel
@@ -82,7 +94,7 @@ EOF
         WORKER_TEST_CONFIG="/usr/share/tests/osbuild-composer/worker/osbuild-worker-tls.toml"
     fi
 
-    sudo cp -a "$COMPOSER_TEST_CONFIG" /etc/osbuild-composer/osbuild-composer.toml
+    sudo cp -a "$COMPOSER_TEST_CONFIG" "$COMPOSER_CONFIG"
     sudo cp -a "$WORKER_TEST_CONFIG" /etc/osbuild-worker/osbuild-worker.toml
 
     # if GCP credentials are defined in the ENV, add them to the worker's configuration
@@ -184,15 +196,34 @@ else # AUTH_METHOD_NONE
     if [ "${NIGHTLY:=false}" == "true" ]; then
         source /usr/libexec/osbuild-composer-test/define-compose-url.sh
 
-        VERSION_SUFFIX=$(echo "${VERSION_ID}" | tr -d ".")
+        # TODO: remove once the osbuild-composer v100 is in RHEL
+        if ! nvrGreaterOrEqual "osbuild-composer" "100"; then
+            VERSION_SUFFIX=$(echo "${VERSION_ID}" | tr -d ".")
+            # remove dots from the repo overrides filename, because the installed version of composer can't handle it
+            for REPO_FILE in "${REPODIR}"/*.json; do
+                REPO_FILE_NO_DOTS="$(basename "${REPO_FILE}" ".json" | tr -d ".").json"
+                if [[ "${REPO_FILE}" != "${REPODIR}/${REPO_FILE_NO_DOTS}" ]]; then
+                    sudo mv "${REPO_FILE}" "${REPODIR}/${REPO_FILE_NO_DOTS}"
+                fi
+            done
+        else
+            VERSION_SUFFIX=${VERSION_ID}
+        fi
+
         for ARCH in aarch64 ppc64le s390x x86_64; do
             for REPO_NAME in BaseOS AppStream RT; do
                 REPO_NAME_LOWERCASE=$(echo "$REPO_NAME" | tr "[:upper:]" "[:lower:]")
                 # will replace only the lines which match
-                sudo sed -i "s|https://rpmrepo.osbuild.org/v2/mirror/rhvpn/el.*${ARCH}-${REPO_NAME_LOWERCASE}-.*|${COMPOSE_URL}/compose/${REPO_NAME}/${ARCH}/os/\",|" "/etc/osbuild-composer/repositories/rhel-${VERSION_SUFFIX}.json"
+                sudo sed -i "s|https://rpmrepo.osbuild.org/v2/mirror/rhvpn/el.*${ARCH}-${REPO_NAME_LOWERCASE}-.*|${COMPOSE_URL}/compose/${REPO_NAME}/${ARCH}/os/\",|" "${REPODIR}/rhel-${VERSION_SUFFIX}.json"
             done
         done
     fi
+fi
+
+# Append the extra configuration to the default configuration
+if [[ -n "${EXTRA_COMPOSER_CONFIG}" ]]; then
+    echo "INFO: Appending extra composer configuration from '${EXTRA_COMPOSER_CONFIG}'"
+    cat "${EXTRA_COMPOSER_CONFIG}" | sudo tee -a "${COMPOSER_CONFIG}"
 fi
 
 # start appropriate units

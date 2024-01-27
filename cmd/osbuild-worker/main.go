@@ -20,7 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/sirupsen/logrus"
 
-	"github.com/ondrejbudai/osbuild-composer-public/public/common"
+	"github.com/osbuild/images/pkg/arch"
 	"github.com/ondrejbudai/osbuild-composer-public/public/dnfjson"
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/azure"
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/koji"
@@ -161,7 +161,7 @@ func setProtection(protected bool) {
 // Returning an error here will result in the worker backing off for a while and retrying
 func RequestAndRunJob(client *worker.Client, acceptedJobTypes []string, jobImpls map[string]JobImplementation) error {
 	logrus.Debug("Waiting for a new job...")
-	job, err := client.RequestJob(acceptedJobTypes, common.CurrentArch())
+	job, err := client.RequestJob(acceptedJobTypes, arch.Current().String())
 	if err == worker.ErrClientRequestJobTimeout {
 		logrus.Debugf("Requesting job timed out: %v", err)
 		return nil

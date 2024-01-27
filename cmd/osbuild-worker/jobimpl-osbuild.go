@@ -15,7 +15,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/osbuild/images/pkg/arch"
 	"github.com/osbuild/images/pkg/container"
+	"github.com/osbuild/images/pkg/distro"
 	"github.com/osbuild/images/pkg/osbuild"
 
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/oci"
@@ -26,7 +28,6 @@ import (
 
 	"github.com/ondrejbudai/osbuild-composer-public/public/cloud/awscloud"
 	"github.com/ondrejbudai/osbuild-composer-public/public/cloud/gcp"
-	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/azure"
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/koji"
@@ -348,10 +349,10 @@ func (impl *OSBuildJobImpl) Run(job worker.Job) error {
 			Success: false,
 		},
 		UploadStatus: "failure",
-		Arch:         common.CurrentArch(),
+		Arch:         arch.Current().String(),
 	}
 
-	hostOS, _, _, err := common.GetHostDistroName()
+	hostOS, err := distro.GetHostDistroName()
 	if err != nil {
 		logWithId.Warnf("Failed to get host distro name: %v", err)
 		hostOS = "linux"
@@ -478,7 +479,7 @@ func (impl *OSBuildJobImpl) Run(job worker.Job) error {
 	osbuildJobResult.OSBuildOutput, err = osbuild.RunOSBuild(jobArgs.Manifest, impl.Store, outputDirectory, exports, nil, extraEnv, true, os.Stderr)
 	// First handle the case when "running" osbuild failed
 	if err != nil {
-		osbuildJobResult.JobError = clienterrors.WorkerClientError(clienterrors.ErrorBuildJob, "osbuild build failed", nil)
+		osbuildJobResult.JobError = clienterrors.WorkerClientError(clienterrors.ErrorBuildJob, "osbuild build failed", err)
 		return err
 	}
 
@@ -506,7 +507,16 @@ func (impl *OSBuildJobImpl) Run(job worker.Job) error {
 
 	// Second handle the case when the build failed, but osbuild finished successfully
 	if !osbuildJobResult.OSBuildOutput.Success {
-		osbuildJobResult.JobError = clienterrors.WorkerClientError(clienterrors.ErrorBuildJob, "osbuild build failed", nil)
+		var osbErrors []error
+		if osbuildJobResult.OSBuildOutput.Error != nil {
+			osbErrors = append(osbErrors, fmt.Errorf("osbuild error: %v", osbuildJobResult.OSBuildOutput.Error))
+		}
+		if osbuildJobResult.OSBuildOutput.Errors != nil {
+			for _, err := range osbuildJobResult.OSBuildOutput.Errors {
+				osbErrors = append(osbErrors, fmt.Errorf("manifest validation error: %v", err))
+			}
+		}
+		osbuildJobResult.JobError = clienterrors.WorkerClientError(clienterrors.ErrorBuildJob, "osbuild build failed", osbErrors)
 		return nil
 	}
 
@@ -626,7 +636,7 @@ func (impl *OSBuildJobImpl) Run(job worker.Job) error {
 				break
 			}
 
-			ami, err := a.Register(jobTarget.ImageName, bucket, targetOptions.Key, targetOptions.ShareWithAccounts, common.CurrentArch(), targetOptions.BootMode)
+			ami, err := a.Register(jobTarget.ImageName, bucket, targetOptions.Key, targetOptions.ShareWithAccounts, arch.Current().String(), targetOptions.BootMode)
 			if err != nil {
 				targetResult.TargetError = clienterrors.WorkerClientError(clienterrors.ErrorImportingImage, err.Error(), nil)
 				break

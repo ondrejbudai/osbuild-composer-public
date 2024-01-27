@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
+	"github.com/osbuild/images/pkg/arch"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker/api"
 )
@@ -172,7 +173,7 @@ func (c *Client) registerWorker() error {
 
 	var buf bytes.Buffer
 	err = json.NewEncoder(&buf).Encode(api.PostWorkersRequest{
-		Arch: common.CurrentArch(),
+		Arch: arch.Current().String(),
 	})
 	if err != nil {
 		logrus.Errorf("Unable create worker request: %v", err)

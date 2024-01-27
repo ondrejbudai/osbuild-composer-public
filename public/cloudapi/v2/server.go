@@ -21,7 +21,7 @@ import (
 
 	"github.com/osbuild/images/pkg/container"
 	"github.com/osbuild/images/pkg/distro"
-	"github.com/osbuild/images/pkg/distroregistry"
+	"github.com/osbuild/images/pkg/distrofactory"
 	"github.com/osbuild/images/pkg/manifest"
 	"github.com/osbuild/images/pkg/ostree"
 	"github.com/ondrejbudai/osbuild-composer-public/public/auth"
@@ -36,7 +36,7 @@ import (
 // Server represents the state of the cloud Server
 type Server struct {
 	workers *worker.Server
-	distros *distroregistry.Registry
+	distros *distrofactory.Factory
 	config  ServerConfig
 	router  routers.Router
 
@@ -50,7 +50,7 @@ type ServerConfig struct {
 	JWTEnabled           bool
 }
 
-func NewServer(workers *worker.Server, distros *distroregistry.Registry, config ServerConfig) *Server {
+func NewServer(workers *worker.Server, distros *distrofactory.Factory, config ServerConfig) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 	spec, err := GetSwagger()
 	if err != nil {
@@ -471,10 +471,10 @@ func serializeManifest(ctx context.Context, manifestSource *manifest.Manifest, w
 
 	if jobErr := depsolveResults.JobError; jobErr != nil {
 		if jobErr.ID == clienterrors.ErrorDNFDepsolveError || jobErr.ID == clienterrors.ErrorDNFMarkingErrors {
-			jobResult.JobError = clienterrors.WorkerClientError(clienterrors.ErrorDepsolveDependency, "Error in depsolve job dependency input, bad package set requested", nil)
+			jobResult.JobError = clienterrors.WorkerClientError(clienterrors.ErrorDepsolveDependency, "Error in depsolve job dependency input, bad package set requested", jobErr.Details)
 			return
 		}
-		jobResult.JobError = clienterrors.WorkerClientError(clienterrors.ErrorDepsolveDependency, "Error in depsolve job dependency", nil)
+		jobResult.JobError = clienterrors.WorkerClientError(clienterrors.ErrorDepsolveDependency, "Error in depsolve job dependency", jobErr.Details)
 		return
 	}
 

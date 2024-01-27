@@ -29,7 +29,6 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/boot/azuretest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/boot/openstacktest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/boot/vmwaretest"
-	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/test"
 )
 
@@ -353,7 +352,7 @@ func testBootUsingAWS(t *testing.T, imagePath string) {
 		"aarch64": "t4g.micro",
 	}
 
-	instanceType, exists := instanceTypeForArch[common.CurrentArch()]
+	instanceType, exists := instanceTypeForArch[arch.Current().String()]
 	if !exists {
 		panic("unsupported AWS arch")
 	}
@@ -407,7 +406,7 @@ func testBootUsingAzure(t *testing.T, imagePath string) {
 
 func testBootUsingOpenStack(t *testing.T, imagePath string) {
 	creds, err := openstack.AuthOptionsFromEnv()
-	currentArch := common.CurrentArch()
+	currentArch := arch.Current().String()
 
 	// skip on aarch64 because we don't have aarch64 openstack or kvm machines
 	if currentArch == arch.ARCH_AARCH64.String() {
@@ -632,7 +631,7 @@ func runTests(t *testing.T, cases []string) {
 			err = json.NewDecoder(f).Decode(&testcase)
 			require.NoErrorf(t, err, "%s: cannot decode test case", p)
 
-			currentArch := common.CurrentArch()
+			currentArch := arch.Current().String()
 			if testcase.ComposeRequest.Arch != currentArch {
 				t.Skipf("the required arch is %s, the current arch is %s", testcase.ComposeRequest.Arch, currentArch)
 			}
