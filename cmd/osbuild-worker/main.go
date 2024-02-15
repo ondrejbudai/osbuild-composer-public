@@ -471,8 +471,12 @@ func main() {
 	// non-depsolve job
 	jobImpls := map[string]JobImplementation{
 		worker.JobTypeOSBuild: &OSBuildJobImpl{
-			Store:       store,
-			Output:      output,
+			Store:  store,
+			Output: output,
+			OSBuildExecutor: ExecutorConfiguration{
+				Type:       config.OSBuildExecutor.Type,
+				IAMProfile: config.OSBuildExecutor.IAMProfile,
+			},
 			KojiServers: kojiServers,
 			GCPConfig:   gcpConfig,
 			AzureConfig: azureConfig,
