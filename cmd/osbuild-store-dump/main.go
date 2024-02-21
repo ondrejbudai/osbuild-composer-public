@@ -13,11 +13,11 @@ import (
 	"github.com/osbuild/images/pkg/distro"
 	"github.com/osbuild/images/pkg/distro/fedora"
 	"github.com/osbuild/images/pkg/distrofactory"
+	"github.com/osbuild/images/pkg/dnfjson"
 	"github.com/osbuild/images/pkg/manifest"
 	"github.com/osbuild/images/pkg/reporegistry"
 	"github.com/osbuild/images/pkg/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
-	"github.com/ondrejbudai/osbuild-composer-public/public/dnfjson"
 	"github.com/ondrejbudai/osbuild-composer-public/public/store"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 )

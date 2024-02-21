@@ -22,10 +22,10 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/pkg/jobqueue/dbjobqueue"
 
 	"github.com/osbuild/images/pkg/distrofactory"
+	"github.com/osbuild/images/pkg/dnfjson"
 	"github.com/ondrejbudai/osbuild-composer-public/public/auth"
 	"github.com/ondrejbudai/osbuild-composer-public/public/cloudapi"
 	v2 "github.com/ondrejbudai/osbuild-composer-public/public/cloudapi/v2"
-	"github.com/ondrejbudai/osbuild-composer-public/public/dnfjson"
 	"github.com/ondrejbudai/osbuild-composer-public/public/jobqueue/fsjobqueue"
 	"github.com/ondrejbudai/osbuild-composer-public/public/weldr"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"

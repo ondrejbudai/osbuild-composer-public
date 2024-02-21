@@ -21,7 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/osbuild/images/pkg/arch"
-	"github.com/ondrejbudai/osbuild-composer-public/public/dnfjson"
+	"github.com/osbuild/images/pkg/dnfjson"
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/azure"
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/koji"
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/oci"
