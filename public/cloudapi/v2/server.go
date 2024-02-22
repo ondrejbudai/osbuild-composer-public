@@ -22,7 +22,6 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/pkg/jobqueue"
 
 	"github.com/osbuild/images/pkg/container"
-	"github.com/osbuild/images/pkg/distro"
 	"github.com/osbuild/images/pkg/distrofactory"
 	"github.com/osbuild/images/pkg/manifest"
 	"github.com/osbuild/images/pkg/ostree"
@@ -118,15 +117,19 @@ func (s *Server) Shutdown() {
 	s.goroutinesGroup.Wait()
 }
 
-func (s *Server) enqueueCompose(distribution distro.Distro, bp blueprint.Blueprint, manifestSeed int64, irs []imageRequest, channel string) (uuid.UUID, error) {
+func (s *Server) enqueueCompose(irs []imageRequest, channel string) (uuid.UUID, error) {
 	var id uuid.UUID
 	if len(irs) != 1 {
 		return id, HTTPError(ErrorInvalidNumberOfImageBuilds)
 	}
 	ir := irs[0]
 
-	ibp := blueprint.Convert(bp)
-	manifestSource, _, err := ir.imageType.Manifest(&ibp, ir.imageOptions, ir.repositories, manifestSeed)
+	ibp := blueprint.Convert(ir.blueprint)
+	// shortcuts
+	arch := ir.imageType.Arch()
+	distribution := arch.Distro()
+
+	manifestSource, _, err := ir.imageType.Manifest(&ibp, ir.imageOptions, ir.repositories, ir.manifestSeed)
 	if err != nil {
 		logrus.Warningf("ErrorEnqueueingJob, failed generating manifest: %v", err)
 		return id, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
@@ -135,7 +138,7 @@ func (s *Server) enqueueCompose(distribution distro.Distro, bp blueprint.Bluepri
 	depsolveJobID, err := s.workers.EnqueueDepsolve(&worker.DepsolveJob{
 		PackageSets:      manifestSource.GetPackageSetChains(),
 		ModulePlatformID: distribution.ModulePlatformID(),
-		Arch:             ir.arch.Name(),
+		Arch:             arch.Name(),
 		Releasever:       distribution.Releasever(),
 	}, channel)
 	if err != nil {
@@ -165,7 +168,7 @@ func (s *Server) enqueueCompose(distribution distro.Distro, bp blueprint.Bluepri
 		}
 
 		job := worker.ContainerResolveJob{
-			Arch:  ir.arch.Name(),
+			Arch:  arch.Name(),
 			Specs: workerResolveSpecs,
 		}
 
@@ -210,7 +213,7 @@ func (s *Server) enqueueCompose(distribution distro.Distro, bp blueprint.Bluepri
 		return id, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
 	}
 
-	id, err = s.workers.EnqueueOSBuildAsDependency(ir.arch.Name(), &worker.OSBuildJob{
+	id, err = s.workers.EnqueueOSBuildAsDependency(arch.Name(), &worker.OSBuildJob{
 		Targets: ir.targets,
 		PipelineNames: &worker.PipelineNames{
 			Build:   ir.imageType.BuildPipelines(),
@@ -223,14 +226,14 @@ func (s *Server) enqueueCompose(distribution distro.Distro, bp blueprint.Bluepri
 
 	s.goroutinesGroup.Add(1)
 	go func() {
-		serializeManifest(s.goroutinesCtx, manifestSource, s.workers, depsolveJobID, containerResolveJobID, ostreeResolveJobID, manifestJobID, manifestSeed)
+		serializeManifest(s.goroutinesCtx, manifestSource, s.workers, depsolveJobID, containerResolveJobID, ostreeResolveJobID, manifestJobID, ir.manifestSeed)
 		defer s.goroutinesGroup.Done()
 	}()
 
 	return id, nil
 }
 
-func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, release string, distribution distro.Distro, bp blueprint.Blueprint, manifestSeed int64, irs []imageRequest, channel string) (uuid.UUID, error) {
+func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, release string, irs []imageRequest, channel string) (uuid.UUID, error) {
 	var id uuid.UUID
 	kojiDirectory := "osbuild-cg/osbuild-composer-koji-" + uuid.New().String()
 
@@ -247,8 +250,13 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 	var kojiFilenames []string
 	var buildIDs []uuid.UUID
 	for _, ir := range irs {
-		ibp := blueprint.Convert(bp)
-		manifestSource, _, err := ir.imageType.Manifest(&ibp, ir.imageOptions, ir.repositories, manifestSeed)
+		ibp := blueprint.Convert(ir.blueprint)
+
+		// shortcuts
+		arch := ir.imageType.Arch()
+		distribution := arch.Distro()
+
+		manifestSource, _, err := ir.imageType.Manifest(&ibp, ir.imageOptions, ir.repositories, ir.manifestSeed)
 		if err != nil {
 			logrus.Errorf("ErrorEnqueueingJob, failed generating manifest: %v", err)
 			return id, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
@@ -257,7 +265,7 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 		depsolveJobID, err := s.workers.EnqueueDepsolve(&worker.DepsolveJob{
 			PackageSets:      manifestSource.GetPackageSetChains(),
 			ModulePlatformID: distribution.ModulePlatformID(),
-			Arch:             ir.arch.Name(),
+			Arch:             arch.Name(),
 			Releasever:       distribution.Releasever(),
 		}, channel)
 		if err != nil {
@@ -287,8 +295,8 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 			}
 
 			job := worker.ContainerResolveJob{
-				Arch:  ir.arch.Name(),
-				Specs: make([]worker.ContainerSpec, len(bp.Containers)),
+				Arch:  arch.Name(),
+				Specs: make([]worker.ContainerSpec, len(ir.blueprint.Containers)),
 			}
 
 			jobId, err := s.workers.EnqueueContainerResolveJob(&job, channel)
@@ -336,7 +344,7 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 			name,
 			version,
 			release,
-			ir.arch.Name(),
+			arch.Name(),
 			splitExtension(ir.imageType.Filename()),
 		)
 
@@ -354,7 +362,7 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 			targets = append(targets, ir.targets...)
 		}
 
-		buildID, err := s.workers.EnqueueOSBuildAsDependency(ir.arch.Name(), &worker.OSBuildJob{
+		buildID, err := s.workers.EnqueueOSBuildAsDependency(arch.Name(), &worker.OSBuildJob{
 			PipelineNames: &worker.PipelineNames{
 				Build:   ir.imageType.BuildPipelines(),
 				Payload: ir.imageType.PayloadPipelines(),
@@ -372,7 +380,7 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 		// copy the image request while passing it into the goroutine to prevent data races
 		s.goroutinesGroup.Add(1)
 		go func(ir imageRequest) {
-			serializeManifest(s.goroutinesCtx, manifestSource, s.workers, depsolveJobID, containerResolveJobID, ostreeResolveJobID, manifestJobID, manifestSeed)
+			serializeManifest(s.goroutinesCtx, manifestSource, s.workers, depsolveJobID, containerResolveJobID, ostreeResolveJobID, manifestJobID, ir.manifestSeed)
 			defer s.goroutinesGroup.Done()
 		}(ir)
 	}

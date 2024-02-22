@@ -255,34 +255,38 @@ func getDefaultTarget(imageType ImageTypes) (UploadTypes, error) {
 	switch imageType {
 	case ImageTypesAws:
 		fallthrough
-	case ImageTypesAwsRhui:
-		fallthrough
 	case ImageTypesAwsHaRhui:
+		fallthrough
+	case ImageTypesAwsRhui:
 		fallthrough
 	case ImageTypesAwsSapRhui:
 		return UploadTypesAws, nil
 
+	case ImageTypesEdgeCommit:
+		fallthrough
+	case ImageTypesEdgeInstaller:
+		fallthrough
 	case ImageTypesGuestImage:
+		fallthrough
+	case ImageTypesImageInstaller:
+		fallthrough
+	case ImageTypesIotCommit:
+		fallthrough
+	case ImageTypesIotInstaller:
+		fallthrough
+	case ImageTypesIotRawImage:
+		fallthrough
+	case ImageTypesIotSimplifiedInstaller:
+		fallthrough
+	case ImageTypesLiveInstaller:
+		fallthrough
+	case ImageTypesMinimalRaw:
 		fallthrough
 	case ImageTypesVsphere:
 		fallthrough
 	case ImageTypesVsphereOva:
 		fallthrough
 	case ImageTypesWsl:
-		fallthrough
-	case ImageTypesImageInstaller:
-		fallthrough
-	case ImageTypesEdgeInstaller:
-		fallthrough
-	case ImageTypesIotInstaller:
-		fallthrough
-	case ImageTypesLiveInstaller:
-		fallthrough
-	case ImageTypesEdgeCommit:
-		fallthrough
-	case ImageTypesIotCommit:
-		fallthrough
-	case ImageTypesIotRawImage:
 		return UploadTypesAwsS3, nil
 
 	case ImageTypesEdgeContainer:
@@ -299,9 +303,9 @@ func getDefaultTarget(imageType ImageTypes) (UploadTypes, error) {
 
 	case ImageTypesAzure:
 		fallthrough
-	case ImageTypesAzureRhui:
-		fallthrough
 	case ImageTypesAzureEap7Rhui:
+		fallthrough
+	case ImageTypesAzureRhui:
 		fallthrough
 	case ImageTypesAzureSapRhui:
 		return UploadTypesAzure, nil
@@ -332,6 +336,7 @@ func targetSupportMap() map[UploadTypes]map[ImageTypes]bool {
 			ImageTypesIotInstaller:         true,
 			ImageTypesIotRawImage:          true,
 			ImageTypesLiveInstaller:        true,
+			ImageTypesMinimalRaw:           true,
 			ImageTypesVsphereOva:           true,
 			ImageTypesVsphere:              true,
 			ImageTypesWsl:                  true,
