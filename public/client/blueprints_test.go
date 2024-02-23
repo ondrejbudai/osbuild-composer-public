@@ -1229,3 +1229,62 @@ func TestBlueprintChangeV1(t *testing.T) {
 	require.NotNil(t, bp, "GET blueprint change failed: missing blueprint")
 	assert.Equal(t, bp.Version, "0.0.1")
 }
+
+func TestEmptyPackageNameBlueprintJsonV0(t *testing.T) {
+	for _, tc := range []struct {
+		packageSnippet string
+		specificErr    string
+	}{
+		{
+			`"packages": [{"name": "", "version": "*"}]`,
+			"Entry #1 has version '*' but no name.",
+		}, {
+			`"packages": [{"name": ""}]`,
+			"Entry #1 has no name.",
+		},
+	} {
+		bp := `{
+ 		"name": "test-emptypackage-blueprint-v0",
+ 		"description": "TestEmptyPackageNameBlueprintV0",
+ 		"version": "0.0.1",
+		` + tc.packageSnippet + `}`
+
+		expectedErrorPrefix := "BlueprintsError: All package entries need to contain the name of the package."
+		expectedErr := expectedErrorPrefix + " " + tc.specificErr
+
+		resp, err := PostJSONBlueprintV0(testState.socket, bp)
+		require.NoError(t, err, "failed with a client error")
+		require.False(t, resp.Status, "Negative status expected.")
+		require.Equal(t, len(resp.Errors), 1, "There should be exactly one error")
+		require.Equal(t, resp.Errors[0].String(), expectedErr, "Error message shall match exactly")
+	}
+}
+
+func TestEmptyPackageNameBlueprintTOMLV0(t *testing.T) {
+	for _, tc := range []struct {
+		packageSnippet string
+		specificErr    string
+	}{
+		{
+			"[[packages]]\nversion = \"*\"\n",
+			"Entry #1 has version '*' but no name.",
+		}, {
+			"[[packages]]\n",
+			"Entry #1 has no name.",
+		},
+	} {
+		bp := `name = "EMPTY-PACKAGE-NAME"
+           description = "empty package name"
+           version = "0.0.1"
+           ` + tc.packageSnippet
+
+		expectedErrorPrefix := "BlueprintsError: All package entries need to contain the name of the package."
+		expectedErr := expectedErrorPrefix + " " + tc.specificErr
+
+		resp, err := PostTOMLBlueprintV0(testState.socket, bp)
+		require.NoError(t, err, "failed with a client error")
+		require.False(t, resp.Status, "Negative status expected.")
+		require.Equal(t, len(resp.Errors), 1, "There should be exactly one error")
+		require.Equal(t, resp.Errors[0].String(), expectedErr, "Error message shall match exactly")
+	}
+}

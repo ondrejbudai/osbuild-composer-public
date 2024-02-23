@@ -101,6 +101,18 @@ func (b *Blueprint) Initialize() error {
 		return fmt.Errorf("Error hashing passwords: %s", err.Error())
 	}
 
+	for i, pkg := range b.Packages {
+		if pkg.Name == "" {
+			var errMsg string
+			if pkg.Version == "" {
+				errMsg = fmt.Sprintf("Entry #%d has no name.", i+1)
+			} else {
+				errMsg = fmt.Sprintf("Entry #%d has version '%v' but no name.", i+1, pkg.Version)
+			}
+			return fmt.Errorf("All package entries need to contain the name of the package. %s", errMsg)
+		}
+	}
+
 	return nil
 }
 

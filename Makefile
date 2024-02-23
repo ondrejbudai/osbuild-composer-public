@@ -73,8 +73,15 @@ help:
 	@echo "targets are available:"
 	@echo
 	@echo "    help:               Print this usage information."
+	@echo "    build:              Build all binaries"
+	@echo "    rpm:                Build the RPM"
+	@echo "    srpm:               Build the source RPM"
+	@echo "    scratch:            Quick scratch build of RPM"
+	@echo "    clean:              Remove all built binaries"
 	@echo "    man:                Generate all man-pages"
 	@echo "    unit-tests:         Run unit tests"
+	@echo "    push-check:         Replicates the github workflow checks as close as possible"
+	@echo "                        (do this before pushing!)"
 
 $(BUILDDIR)/:
 	mkdir -p "$@"
@@ -108,31 +115,30 @@ man: $(MANPAGES_TROFF)
 #
 
 .PHONY: build
-build:
-	- mkdir -p bin
-	go build -o bin/osbuild-composer ./cmd/osbuild-composer/
-	go build -o bin/osbuild-worker ./cmd/osbuild-worker/
-	go build -o bin/osbuild-upload-azure ./cmd/osbuild-upload-azure/
-	go build -o bin/osbuild-upload-aws ./cmd/osbuild-upload-aws/
-	go build -o bin/osbuild-upload-gcp ./cmd/osbuild-upload-gcp/
-	go build -o bin/osbuild-upload-oci ./cmd/osbuild-upload-oci/
-	go build -o bin/osbuild-upload-generic-s3 ./cmd/osbuild-upload-generic-s3/
-	go build -o bin/osbuild-mock-openid-provider ./cmd/osbuild-mock-openid-provider
-	go build -o bin/osbuild-service-maintenance ./cmd/osbuild-service-maintenance
-	go test -c -tags=integration -o bin/osbuild-composer-cli-tests ./cmd/osbuild-composer-cli-tests/main_test.go
-	go test -c -tags=integration -o bin/osbuild-weldr-tests ./internal/client/
-	go test -c -tags=integration -o bin/osbuild-dnf-json-tests ./cmd/osbuild-dnf-json-tests/main_test.go
-	go test -c -tags=integration -o bin/osbuild-image-tests ./cmd/osbuild-image-tests/
-	go test -c -tags=integration -o bin/osbuild-auth-tests ./cmd/osbuild-auth-tests/
-	go test -c -tags=integration -o bin/osbuild-koji-tests ./cmd/osbuild-koji-tests/
-	go test -c -tags=integration -o bin/osbuild-composer-dbjobqueue-tests ./cmd/osbuild-composer-dbjobqueue-tests/
-	go test -c -tags=integration -o bin/osbuild-composer-maintenance-tests ./cmd/osbuild-service-maintenance/
+build: $(BUILDDIR)/bin/
+	go build -o $<osbuild-composer ./cmd/osbuild-composer/
+	go build -o $<osbuild-worker ./cmd/osbuild-worker/
+	go build -o $<osbuild-upload-azure ./cmd/osbuild-upload-azure/
+	go build -o $<osbuild-upload-aws ./cmd/osbuild-upload-aws/
+	go build -o $<osbuild-upload-gcp ./cmd/osbuild-upload-gcp/
+	go build -o $<osbuild-upload-oci ./cmd/osbuild-upload-oci/
+	go build -o $<osbuild-upload-generic-s3 ./cmd/osbuild-upload-generic-s3/
+	go build -o $<osbuild-mock-openid-provider ./cmd/osbuild-mock-openid-provider
+	go build -o $<osbuild-service-maintenance ./cmd/osbuild-service-maintenance
+	go test -c -tags=integration -o $<osbuild-composer-cli-tests ./cmd/osbuild-composer-cli-tests/main_test.go
+	go test -c -tags=integration -o $<osbuild-weldr-tests ./internal/client/
+	go test -c -tags=integration -o $<osbuild-dnf-json-tests ./cmd/osbuild-dnf-json-tests/main_test.go
+	go test -c -tags=integration -o $<osbuild-image-tests ./cmd/osbuild-image-tests/
+	go test -c -tags=integration -o $<osbuild-auth-tests ./cmd/osbuild-auth-tests/
+	go test -c -tags=integration -o $<osbuild-koji-tests ./cmd/osbuild-koji-tests/
+	go test -c -tags=integration -o $<osbuild-composer-dbjobqueue-tests ./cmd/osbuild-composer-dbjobqueue-tests/
+	go test -c -tags=integration -o $<osbuild-composer-maintenance-tests ./cmd/osbuild-service-maintenance/
 
 .PHONY: install
-install:
+install: build
 	- mkdir -p /usr/libexec/osbuild-composer
-	cp bin/osbuild-composer /usr/libexec/osbuild-composer/
-	cp bin/osbuild-worker /usr/libexec/osbuild-composer/
+	cp $(BUILDDIR)/bin/osbuild-composer /usr/libexec/osbuild-composer/
+	cp $(BUILDDIR)/bin/osbuild-worker /usr/libexec/osbuild-composer/
 	cp dnf-json /usr/libexec/osbuild-composer/
 	- mkdir -p /usr/share/osbuild-composer/repositories
 	cp repositories/* /usr/share/osbuild-composer/repositories
@@ -143,6 +149,24 @@ install:
 	cp distribution/*.service /etc/systemd/system/
 	cp distribution/*.socket /etc/systemd/system/
 	systemctl daemon-reload
+
+.PHONY: clean
+clean:
+	rm -rf $(BUILDDIR)/bin/
+	rm -rf $(CURDIR)/rpmbuild
+
+.PHONY: push-check
+push-check: build unit-tests srpm man
+	./tools/check-runners
+	./tools/check-snapshots --errors-only .
+	rpmlint --config rpmlint.config $(CURDIR)/rpmbuild/SRPMS/*
+	./tools/prepare-source.sh
+	@if [ 0 -ne $$(git status --porcelain --untracked-files|wc -l) ]; then \
+	    echo "There should be no changed or untracked files"; \
+	    git status --porcelain --untracked-files; \
+	    exit 1; \
+	fi
+	@echo "All looks good - congratulations"
 
 CERT_DIR=/etc/osbuild-composer
 
@@ -198,7 +222,6 @@ worker-key-pair: ca
 .PHONY: unit-tests
 unit-tests:
 	go test -race ./...
-	go test -race ./internal/dnfjson/... -force-dnf
 
 #
 # Building packages
