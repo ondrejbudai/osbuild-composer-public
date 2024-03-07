@@ -59,13 +59,6 @@ get_test_cases () {
             SKIP_CASES=("${SKIP_OSTREE[@]}")
         fi
 
-        if nvrGreaterOrEqual "osbuild-composer" "84"; then
-            echo
-        else
-            SKIP_ME=$(grep ova-boot <<< "$ALL_CASES" || echo -n)
-            SKIP_CASES=("${SKIP_CASES[@]}" "$SKIP_ME")
-        fi
-
         mapfile -t TEST_CASES < <(grep -vxFf <(printf '%s\n' "${SKIP_CASES[@]}") <(printf '%s\n' "${ALL_CASES[@]}"))
         echo "${TEST_CASES[@]}"
     popd > /dev/null
