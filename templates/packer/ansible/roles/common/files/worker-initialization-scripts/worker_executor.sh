@@ -2,7 +2,8 @@
 set -euo pipefail
 
 source /etc/os-release
-source /tmp/cloud_init_vars
+# TODO: uncomment, when the cloud_init_vars file is created on the executor
+#source /tmp/cloud_init_vars
 
 # Don't subscribe on fedora
 if [ "$ID" != fedora ]; then
@@ -19,19 +20,23 @@ CLOUDWATCH_ENDPOINT="https://logs.$REGION.amazonaws.com"
 OSBUILD_EXECUTOR_CLOUDWATCH_GROUP=${OSBUILD_EXECUTOR_CLOUDWATCH_GROUP:-osbuild-executor-log-group}
 
 sudo mkdir -p /etc/vector
-sudo tee /etc/vector/vector.toml > /dev/null << EOF
-[sources.journald]
-type = "journald"
-exclude_units = ["vector.service"]
-
-[sinks.out]
-type = "aws_cloudwatch_logs"
-inputs = [ "journald" ]
-region = "${REGION}"
-endpoint = "${CLOUDWATCH_ENDPOINT}"
-group_name = "${OSBUILD_EXECUTOR_CLOUDWATCH_GROUP}"
-stream_name = "osbuild_executor_syslog_${HOSTNAME}"
-encoding.codec = "json"
+sudo tee /etc/vector/vector.yaml > /dev/null << EOF
+sources:
+  journald:
+    type: journald
+    exclude_units:
+      - vector.service
+sinks:
+  out:
+    type: aws_cloudwatch_logs
+    inputs:
+      - journald
+    region: ${REGION}
+    endpoint: ${CLOUDWATCH_ENDPOINT}
+    group_name: ${OSBUILD_EXECUTOR_CLOUDWATCH_GROUP}
+    stream_name: worker_syslog_{{ host }}
+    encoding:
+      codec: json
 EOF
 sudo systemctl enable --now vector
 
