@@ -4,7 +4,6 @@ package v2
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
 	"net/http"
 	"os"
 	"strconv"
@@ -17,6 +16,7 @@ import (
 	"github.com/osbuild/images/pkg/manifest"
 	"github.com/osbuild/images/pkg/osbuild"
 	"github.com/osbuild/images/pkg/rpmmd"
+	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"
@@ -153,7 +153,7 @@ func (h *apiHandlers) PostCompose(ctx echo.Context) error {
 		return HTTPErrorWithInternal(ErrorTenantNotFound, err)
 	}
 
-	irs, err := request.GetImageRequests(h.server.distros)
+	irs, err := request.GetImageRequests(h.server.distros, h.server.repos)
 	if err != nil {
 		return err
 	}

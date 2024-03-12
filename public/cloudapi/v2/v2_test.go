@@ -17,6 +17,7 @@ import (
 	"github.com/osbuild/images/pkg/distrofactory"
 	"github.com/osbuild/images/pkg/osbuild"
 	"github.com/osbuild/images/pkg/ostree/mock_ostree_repo"
+	"github.com/osbuild/images/pkg/reporegistry"
 	"github.com/osbuild/images/pkg/rpmmd"
 	v2 "github.com/ondrejbudai/osbuild-composer-public/public/cloudapi/v2"
 	"github.com/ondrejbudai/osbuild-composer-public/public/jobqueue/fsjobqueue"
@@ -34,11 +35,15 @@ func newV2Server(t *testing.T, dir string, depsolveChannels []string, enableJWT 
 	distros := distrofactory.NewTestDefault()
 	require.NotNil(t, distros)
 
+	repos, err := reporegistry.NewTestedDefault()
+	require.Nil(t, err)
+	require.NotNil(t, repos)
+
 	config := v2.ServerConfig{
 		JWTEnabled:           enableJWT,
 		TenantProviderFields: []string{"rh-org-id", "account_id"},
 	}
-	v2Server := v2.NewServer(workerServer, distros, config)
+	v2Server := v2.NewServer(workerServer, distros, repos, config)
 	require.NotNil(t, v2Server)
 	t.Cleanup(v2Server.Shutdown)
 
