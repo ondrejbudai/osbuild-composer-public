@@ -310,6 +310,10 @@ password = "\$6\$GRmb7S0p8vsYmXzH\$o0E020S.9JQGaHkszoog4ha4AQVs3sk8q0DvLjSMxoxHB
 key = "${SSH_KEY_PUB}"
 home = "/home/${SSH_USER}/"
 groups = ["wheel", "testers"]
+
+[customizations.installer]
+unattended = true
+sudo-nopasswd = ["admin"]
 EOF
 
 greenprint "📄 installer blueprint"
@@ -328,8 +332,16 @@ greenprint "📥 Downloading the installer image"
 sudo composer-cli compose image "${COMPOSE_ID}" > /dev/null
 ISO_FILENAME="${COMPOSE_ID}-installer.iso"
 greenprint "🖥 Modify kickstart file and create new ISO"
-modksiso "${ISO_FILENAME}" "/var/lib/libvirt/images/${ISO_FILENAME}"
-sudo rm "${ISO_FILENAME}"
+
+# in nightly pipelines the feature wont be available for a while, so the
+# customizations will have no effect and we need to modify the kickstart file
+# on the ISO
+if [[ "${NIGHTLY:=false}" == "true" ]] && ! nvrGreaterOrEqual "osbuild-composer" "103"; then
+    modksiso "${ISO_FILENAME}" "/var/lib/libvirt/images/${ISO_FILENAME}"
+    sudo rm "${ISO_FILENAME}"
+else
+    sudo mv "${ISO_FILENAME}" "/var/lib/libvirt/images/${ISO_FILENAME}"
+fi
 
 # Clean compose and blueprints.
 greenprint "🧹 Clean up installer blueprint and compose"
