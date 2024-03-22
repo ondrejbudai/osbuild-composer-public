@@ -174,12 +174,17 @@ func Dance(done chan<- struct{}, errs chan<- error) {
 	close(done)
 }
 
-func Request(method string, path string, body io.Reader) (*http.Response, error) {
+func Request(method string, path string, body io.Reader, bodySeeker io.ReadSeeker) (*http.Response, error) {
 	cli := &http.Client{}
 	url := fmt.Sprintf("http://%s:%d/%s", argBuilderHost, argBuilderPort, path)
 
-	req, err := http.NewRequest(method, url, body)
-
+	var req *http.Request
+	var err error
+	if bodySeeker != nil {
+		req, err = http.NewRequest(method, url, bodySeeker)
+	} else {
+		req, err = http.NewRequest(method, url, body)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -195,6 +200,12 @@ func Request(method string, path string, body io.Reader) (*http.Response, error)
 
 		if err != nil {
 			if errors.Is(err, syscall.ECONNABORTED) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNREFUSED) {
+				if bodySeeker != nil {
+					_, err = bodySeeker.Seek(0, io.SeekStart)
+					if err != nil {
+						return nil, err
+					}
+				}
 				time.Sleep(1 * time.Second)
 				continue
 			}
@@ -224,7 +235,7 @@ func Wait(timeout int, fn Step) error {
 
 func StepClaim() error {
 	return Wait(argTimeoutClaim, func(done chan<- struct{}, errs chan<- error) {
-		res, err := Request("POST", "claim", nil)
+		res, err := Request("POST", "claim", nil, nil)
 
 		if err != nil {
 			errs <- err
@@ -246,7 +257,7 @@ func StepClaim() error {
 
 func StepProvision(manifest []byte) error {
 	return Wait(argTimeoutProvision, func(done chan<- struct{}, errs chan<- error) {
-		res, err := Request("PUT", "provision", bytes.NewBuffer(manifest))
+		res, err := Request("PUT", "provision", bytes.NewBuffer(manifest), nil)
 
 		if err != nil {
 			errs <- err
@@ -273,6 +284,8 @@ func StepPopulate() error {
 			errs <- err
 			return
 		}
+		defer os.Remove(file.Name())
+
 		tw := tar.NewWriter(file)
 		defer tw.Close()
 		err = filepath.Walk(argStore, func(filePath string, fi os.FileInfo, err error) error {
@@ -319,13 +332,20 @@ func StepPopulate() error {
 			errs <- err
 			return
 		}
+
+		err = tw.Close()
+		if err != nil {
+			errs <- err
+			return
+		}
+
 		_, err = file.Seek(0, io.SeekStart)
 		if err != nil {
 			errs <- err
 			return
 		}
 
-		res, err := Request("POST", "populate", file)
+		res, err := Request("POST", "populate", nil, file)
 		if err != nil {
 			errs <- err
 			return
@@ -356,7 +376,7 @@ func StepBuild() error {
 			logrus.Fatalf("StepBuild: Failed to marshal data: %s", err)
 		}
 
-		res, err := Request("POST", "build", bytes.NewBuffer(dat))
+		res, err := Request("POST", "build", bytes.NewBuffer(dat), nil)
 
 		if err != nil {
 			errs <- err
@@ -379,7 +399,7 @@ func StepBuild() error {
 func StepProgress() error {
 	return Wait(argTimeoutProgress, func(done chan<- struct{}, errs chan<- error) {
 		for {
-			res, err := Request("GET", "progress", nil)
+			res, err := Request("GET", "progress", nil, nil)
 
 			if err != nil {
 				errs <- err
@@ -416,7 +436,7 @@ func StepProgress() error {
 func StepExport() error {
 	return Wait(argTimeoutExport, func(done chan<- struct{}, errs chan<- error) {
 		for _, export := range argExports {
-			res, err := Request("GET", fmt.Sprintf("export?path=%s", url.PathEscape(export)), nil)
+			res, err := Request("GET", fmt.Sprintf("export?path=%s", url.PathEscape(export)), nil, nil)
 
 			if err != nil {
 				errs <- err
