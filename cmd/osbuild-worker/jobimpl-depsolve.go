@@ -19,6 +19,7 @@ type RepositoryMTLSConfig struct {
 	CA             string
 	MTLSClientKey  string
 	MTLSClientCert string
+	Proxy          *url.URL
 }
 
 func (rmc *RepositoryMTLSConfig) CompareBaseURL(baseURLStr string) (bool, error) {
@@ -49,19 +50,27 @@ type DepsolveJobImpl struct {
 // in repos are used for all package sets, whereas the repositories in
 // packageSetsRepos are only used for the package set with the same name
 // (matching map keys).
-func (impl *DepsolveJobImpl) depsolve(packageSets map[string][]rpmmd.PackageSet, modulePlatformID, arch, releasever string) (map[string][]rpmmd.PackageSpec, error) {
+func (impl *DepsolveJobImpl) depsolve(packageSets map[string][]rpmmd.PackageSet, modulePlatformID, arch, releasever string) (map[string][]rpmmd.PackageSpec, map[string][]rpmmd.RepoConfig, error) {
 	solver := impl.Solver.NewWithConfig(modulePlatformID, releasever, arch, "")
-
-	depsolvedSets := make(map[string][]rpmmd.PackageSpec)
-	for name, pkgSet := range packageSets {
-		res, err := solver.Depsolve(pkgSet)
+	if impl.RepositoryMTLSConfig.Proxy != nil {
+		err := solver.SetProxy(impl.RepositoryMTLSConfig.Proxy.String())
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		depsolvedSets[name] = res
 	}
 
-	return depsolvedSets, nil
+	depsolvedSets := make(map[string][]rpmmd.PackageSpec)
+	repoConfigs := make(map[string][]rpmmd.RepoConfig)
+	for name, pkgSet := range packageSets {
+		res, repos, err := solver.Depsolve(pkgSet)
+		if err != nil {
+			return nil, nil, err
+		}
+		depsolvedSets[name] = res
+		repoConfigs[name] = repos
+	}
+
+	return depsolvedSets, repoConfigs, nil
 }
 
 func (impl *DepsolveJobImpl) Run(job worker.Job) error {
@@ -75,9 +84,9 @@ func (impl *DepsolveJobImpl) Run(job worker.Job) error {
 	var result worker.DepsolveJobResult
 
 	if impl.RepositoryMTLSConfig != nil {
-		for _, pkgsets := range args.PackageSets {
-			for _, pkgset := range pkgsets {
-				for _, repo := range pkgset.Repositories {
+		for pkgsetsi, pkgsets := range args.PackageSets {
+			for pkgseti, pkgset := range pkgsets {
+				for repoi, repo := range pkgset.Repositories {
 					for _, baseurlstr := range repo.BaseURLs {
 						match, err := impl.RepositoryMTLSConfig.CompareBaseURL(baseurlstr)
 						if err != nil {
@@ -85,9 +94,9 @@ func (impl *DepsolveJobImpl) Run(job worker.Job) error {
 							return err
 						}
 						if match {
-							repo.SSLCACert = impl.RepositoryMTLSConfig.CA
-							repo.SSLClientKey = impl.RepositoryMTLSConfig.MTLSClientKey
-							repo.SSLClientCert = impl.RepositoryMTLSConfig.MTLSClientCert
+							args.PackageSets[pkgsetsi][pkgseti].Repositories[repoi].SSLCACert = impl.RepositoryMTLSConfig.CA
+							args.PackageSets[pkgsetsi][pkgseti].Repositories[repoi].SSLClientKey = impl.RepositoryMTLSConfig.MTLSClientKey
+							args.PackageSets[pkgsetsi][pkgseti].Repositories[repoi].SSLClientCert = impl.RepositoryMTLSConfig.MTLSClientCert
 						}
 					}
 				}
@@ -95,7 +104,7 @@ func (impl *DepsolveJobImpl) Run(job worker.Job) error {
 		}
 	}
 
-	result.PackageSpecs, err = impl.depsolve(args.PackageSets, args.ModulePlatformID, args.Arch, args.Releasever)
+	result.PackageSpecs, result.RepoConfigs, err = impl.depsolve(args.PackageSets, args.ModulePlatformID, args.Arch, args.Releasever)
 	if err != nil {
 		switch e := err.(type) {
 		case dnfjson.Error:
