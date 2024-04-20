@@ -168,7 +168,9 @@ func (s *Server) WatchWorkers() {
 			err = s.jobs.DeleteWorker(w.ID)
 			if err != nil {
 				logrus.Warningf("Unable to remove worker: %v", err)
+				continue
 			}
+			prometheus.RemoveActiveWorker(w.ID.String(), w.Channel, w.Arch)
 		}
 	}
 }
@@ -823,11 +825,12 @@ func (s *Server) RequeueOrFinishJob(token uuid.UUID, maxRetries uint64, result j
 	return nil
 }
 
-func (s *Server) RegisterWorker(a string) (uuid.UUID, error) {
-	workerID, err := s.jobs.InsertWorker(a)
+func (s *Server) RegisterWorker(c, a string) (uuid.UUID, error) {
+	workerID, err := s.jobs.InsertWorker(c, a)
 	if err != nil {
 		return uuid.Nil, err
 	}
+	prometheus.AddActiveWorker(workerID.String(), c, a)
 	logrus.Infof("Worker (%v) registered", a)
 	return workerID, nil
 }
@@ -1059,7 +1062,18 @@ func (h *apiHandlers) PostWorkers(ctx echo.Context) error {
 		return err
 	}
 
-	workerID, err := h.server.RegisterWorker(body.Arch)
+	var channel string
+	if h.server.config.JWTEnabled {
+		tenant, err := auth.GetFromClaims(ctx.Request().Context(), h.server.config.TenantProviderFields)
+		if err != nil {
+			return api.HTTPErrorWithInternal(api.ErrorTenantNotFound, err)
+		}
+
+		// prefix the tenant to prevent collisions if support for specifying channels in a request is ever added
+		channel = "org-" + tenant
+	}
+
+	workerID, err := h.server.RegisterWorker(channel, body.Arch)
 	if err != nil {
 		return api.HTTPErrorWithInternal(api.ErrorInsertingWorker, err)
 	}
