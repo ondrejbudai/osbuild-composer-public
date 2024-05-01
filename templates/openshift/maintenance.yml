@@ -28,7 +28,7 @@ objects:
       spec:
         template:
           spec:
-            serviceAccountName: image-builder
+            serviceAccountName: image-builder-maintenance
             restartPolicy: Never
             containers:
             - image: "${IMAGE_NAME}:${IMAGE_TAG}"
@@ -156,6 +156,13 @@ objects:
               - name: MAX_CONCURRENT_REQUESTS
                 value: "${MAINTENANCE_MAX_CONCURRENT_REQUESTS}"
 
+- apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: image-builder-maintenance
+  imagePullSecrets:
+  - name: quay.io
+
 parameters:
   - description: maintenance image name
     name: IMAGE_NAME
@@ -195,6 +202,10 @@ parameters:
     name: ENABLE_DB_MAINTENANCE
     # don't change this value, overwrite it in app-interface for a specific namespace
     value: "false"
+    required: true
+  - description: postgres sslmode to use when connecting to the db
+    name: PGSSLMODE
+    value: "require"
     required: true
   - description: composer-maintenance max concurrent requests
     name: MAINTENANCE_MAX_CONCURRENT_REQUESTS
