@@ -6,7 +6,8 @@ COMMIT_SHA="${COMMIT_SHA:-$(git rev-parse HEAD)}"
 COMMIT_BRANCH="${COMMIT_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
 SKIP_CREATE_AMI="${SKIP_CREATE_AMI:-false}"
 BUILD_RPMS="${BUILD_RPMS:-true}"
-SKIP_TAGS="${SKIP_TAGS:-rpmrepo}"
+# RHEL workers build their own rpms.
+SKIP_TAGS="${SKIP_TAGS:-rpmrepo_composer,rpmrepo_osbuild,rpmcopr}"
 # Build rhel only
 PACKER_ONLY_EXCEPT="${PACKER_ONLY_EXCEPT:---only=amazon-ebs.rhel-9-x86_64,amazon-ebs.rhel-9-aarch64}"
 
@@ -67,7 +68,7 @@ EOF
         # write osbuild_commit variable if defined in Schutzfile
         # if it's not defined, osbuild will be installed from distribution repositories
         if [[ $osbuild_commit != "null" ]]; then
-            tee -a "$item/group_vars/all.yml" null >dev <<EOF
+            tee -a "$item/group_vars/all.yml" <<EOF
 osbuild_commit: $osbuild_commit
 EOF
         fi
