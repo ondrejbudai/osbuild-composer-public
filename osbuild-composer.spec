@@ -126,6 +126,10 @@ export GOPATH=%{gobuilddir}:%{gopath}
 
 TEST_LDFLAGS="${LDFLAGS:-} -B 0x$(od -N 20 -An -tx1 -w100 /dev/urandom | tr -d ' ')"
 
+%if 0%{?rhel}
+GOTAGS="${GOTAGS:+$GOTAGS,}rhel%{rhel}"
+%endif
+
 go test -c -tags="integration${GOTAGS:+,$GOTAGS}" -ldflags="${TEST_LDFLAGS}" -o _bin/osbuild-composer-cli-tests %{goipath}/cmd/osbuild-composer-cli-tests
 go test -c -tags="integration${GOTAGS:+,$GOTAGS}" -ldflags="${TEST_LDFLAGS}" -o _bin/osbuild-dnf-json-tests %{goipath}/cmd/osbuild-dnf-json-tests
 go test -c -tags="integration${GOTAGS:+,$GOTAGS}" -ldflags="${TEST_LDFLAGS}" -o _bin/osbuild-weldr-tests %{goipath}/internal/client/
@@ -147,27 +151,35 @@ install -m 0755 -vp _bin/osbuild-jobsite-builder                   %{buildroot}%
 
 # Only include repositories for the distribution and release
 install -m 0755 -vd                                                %{buildroot}%{_datadir}/osbuild-composer/repositories
+
 # CentOS also defines rhel so we check for centos first
 %if 0%{?centos}
 
-# CentOS 9 supports building for CentOS 8 and later
-%if 0%{?centos} >= 9
+# Latest CentOS supports building all CentOS versions
+%if 0%{?centos} >= 10
 install -m 0644 -vp repositories/centos-*                          %{buildroot}%{_datadir}/osbuild-composer/repositories/
+
 %else
-# CentOS 8 only supports building for CentOS 8
+# All other CentOS versions support building for the same version
 install -m 0644 -vp repositories/centos-%{centos}*                 %{buildroot}%{_datadir}/osbuild-composer/repositories/
 install -m 0644 -vp repositories/centos-stream-%{centos}*          %{buildroot}%{_datadir}/osbuild-composer/repositories/
-
 %endif
+
 %else
+
 %if 0%{?rhel}
-# RHEL 9 supports building for RHEL 8 and later
-%if 0%{?rhel} >= 9
+# RHEL 10 supports building all RHEL versions
+%if 0%{?rhel} >= 10
 install -m 0644 -vp repositories/rhel-*                            %{buildroot}%{_datadir}/osbuild-composer/repositories/
 
 %else
-# RHEL 8 only supports building for 8
+# All other RHEL versions support building for the same version
 install -m 0644 -vp repositories/rhel-%{rhel}*                     %{buildroot}%{_datadir}/osbuild-composer/repositories/
+
+# RHEL 9 supports building also for RHEL 8
+%if 0%{?rhel} == 9
+install -m 0644 -vp repositories/rhel-8*                           %{buildroot}%{_datadir}/osbuild-composer/repositories/
+%endif
 
 %endif
 %endif
@@ -395,7 +407,11 @@ Requires:   httpd
 Requires:   mod_ssl
 Requires:   openssl
 Requires:   firewalld
+# podman-plugins has been deprecated since podman version 5.0.0,
+# which is in Fedora 40+ and in c10s / el10
+%if (0%{?rhel} && 0%{?rhel} < 10) || (0%{?fedora} && 0%{?fedora} < 40)
 Requires:   podman-plugins
+%endif
 Requires:   dnf-plugins-core
 Requires:   skopeo
 Requires:   make
