@@ -58,7 +58,7 @@ func runOsbuild(logger *logrus.Logger, buildDir string, control *controlJSON, ou
 	// use multi writer to get same output for stream and log
 	mw := io.MultiWriter(&wf, logf)
 	outputDir := filepath.Join(buildDir, "output")
-	storeDir := filepath.Join(buildDir, "store")
+	storeDir := filepath.Join(buildDir, "osbuild-store")
 	cmd := exec.Command(osbuildBinary)
 	cmd.Stdout = mw
 	cmd.Stderr = mw
@@ -81,9 +81,11 @@ func runOsbuild(logger *logrus.Logger, buildDir string, control *controlJSON, ou
 		return "", err
 	}
 
+	// the result is put into a tar because we get sparse file support for free this way
 	// #nosec G204
 	cmd = exec.Command(
 		"tar",
+		"--exclude=output/output.tar",
 		"-Scf",
 		filepath.Join(outputDir, "output.tar"),
 		"output",
@@ -96,7 +98,10 @@ func runOsbuild(logger *logrus.Logger, buildDir string, control *controlJSON, ou
 		_, _ = mw.Write([]byte(err.Error()))
 		return "", err
 	}
-	logger.Infof("tar output:\n%s", out)
+	if len(out) > 0 {
+		logger.Warnf("unexpected tar output:\n%s", out)
+	}
+
 	return outputDir, nil
 }
 
@@ -188,8 +193,8 @@ func handleIncludedSources(atar *tar.Reader, buildDir string) error {
 		if filepath.Clean(name) != strings.TrimSuffix(name, "/") {
 			return fmt.Errorf("name not clean: %v != %v", filepath.Clean(name), name)
 		}
-		if !strings.HasPrefix(name, "store/") {
-			return fmt.Errorf("expected store/ prefix, got %v", hdr.Name)
+		if !strings.HasPrefix(name, "osbuild-store/") {
+			return fmt.Errorf("expected osbuild-store/ prefix, got %v", name)
 		}
 		// note that the extra filepath.Clean() is just there to
 		// appease gosec G305
