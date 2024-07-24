@@ -91,6 +91,8 @@ init:
   RUNNER:
     - aws/rhel-9.5-nightly-x86_64
     - aws/rhel-9.5-nightly-aarch64
+    - aws/rhel-10.0-nightly-x86_64
+    - aws/rhel-10.0-nightly-aarch64
 
   INTERNAL_NETWORK: ["true"]
 
@@ -115,6 +117,8 @@ RPM:
           - aws/rhel-9.4-ga-aarch64
           - aws/centos-stream-9-x86_64
           - aws/centos-stream-9-aarch64
+          - aws/centos-stream-10-x86_64
+          - aws/centos-stream-10-aarch64
       - <<: *RPM_RUNNERS_RHEL
 
 Build -tests RPM for RHEL:
