@@ -9,7 +9,7 @@ import (
 )
 
 // TODO: move these to the EC2 environment
-const amiKernelOptions = "console=tty0 console=ttyS0,115200n8 rd.blacklist=nouveau nvme_core.io_timeout=4294967295"
+const amiKernelOptions = "console=tty0 console=ttyS0,115200n8 nvme_core.io_timeout=4294967295"
 
 // default EC2 images config (common for all architectures)
 func baseEc2ImageConfig() *distro.ImageConfig {
@@ -57,19 +57,6 @@ func baseEc2ImageConfig() *distro.ImageConfig {
 				Network: &osbuild.SysconfigNetworkOptions{
 					Networking: true,
 					NoZeroConf: true,
-				},
-				NetworkScripts: &osbuild.NetworkScriptsOptions{
-					IfcfgFiles: map[string]osbuild.IfcfgFile{
-						"eth0": {
-							Device:    "eth0",
-							Bootproto: osbuild.IfcfgBootprotoDHCP,
-							OnBoot:    common.ToPtr(true),
-							Type:      osbuild.IfcfgTypeEthernet,
-							UserCtl:   common.ToPtr(true),
-							PeerDNS:   common.ToPtr(true),
-							IPv6Init:  common.ToPtr(false),
-						},
-					},
 				},
 			},
 		},
@@ -262,7 +249,7 @@ func mkAMIImgTypeAarch64() *rhel.ImageType {
 		[]string{"image"},
 	)
 
-	it.KernelOptions = "console=ttyS0,115200n8 console=tty0 rd.blacklist=nouveau nvme_core.io_timeout=4294967295 iommu.strict=0"
+	it.KernelOptions = "console=ttyS0,115200n8 console=tty0 nvme_core.io_timeout=4294967295 iommu.strict=0"
 	it.Bootable = true
 	it.DefaultSize = 10 * common.GibiByte
 	it.DefaultImageConfig = defaultAMIImageConfig()

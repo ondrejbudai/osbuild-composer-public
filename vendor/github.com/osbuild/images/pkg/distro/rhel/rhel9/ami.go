@@ -2,15 +2,15 @@ package rhel9
 
 import (
 	"github.com/osbuild/images/internal/common"
+	"github.com/osbuild/images/pkg/customizations/subscription"
 	"github.com/osbuild/images/pkg/distro"
 	"github.com/osbuild/images/pkg/distro/rhel"
 	"github.com/osbuild/images/pkg/osbuild"
 	"github.com/osbuild/images/pkg/rpmmd"
-	"github.com/osbuild/images/pkg/subscription"
 )
 
 // TODO: move these to the EC2 environment
-const amiKernelOptions = "console=tty0 console=ttyS0,115200n8 net.ifnames=0 rd.blacklist=nouveau nvme_core.io_timeout=4294967295"
+const amiKernelOptions = "console=tty0 console=ttyS0,115200n8 net.ifnames=0 nvme_core.io_timeout=4294967295"
 
 // default EC2 images config (common for all architectures)
 func baseEc2ImageConfig() *distro.ImageConfig {
@@ -148,7 +148,7 @@ func defaultEc2ImageConfig(osVersion string, rhsm bool) *distro.ImageConfig {
 		ic = appendRHSM(ic)
 		// Disable RHSM redhat.repo management
 		rhsmConf := ic.RHSMConfig[subscription.RHSMConfigNoSubscription]
-		rhsmConf.SubMan.Rhsm = &osbuild.SubManConfigRHSMSection{ManageRepos: common.ToPtr(false)}
+		rhsmConf.SubMan.Rhsm = subscription.SubManRHSMConfig{ManageRepos: common.ToPtr(false)}
 		ic.RHSMConfig[subscription.RHSMConfigNoSubscription] = rhsmConf
 	}
 	return ic
@@ -363,7 +363,7 @@ func mkEC2SapImgTypeX86_64(osVersion string, rhsm bool) *rhel.ImageType {
 	)
 
 	it.Compression = "xz"
-	it.KernelOptions = "console=ttyS0,115200n8 console=tty0 net.ifnames=0 rd.blacklist=nouveau nvme_core.io_timeout=4294967295 processor.max_cstate=1 intel_idle.max_cstate=1"
+	it.KernelOptions = "console=ttyS0,115200n8 console=tty0 net.ifnames=0 nvme_core.io_timeout=4294967295 processor.max_cstate=1 intel_idle.max_cstate=1"
 	it.Bootable = true
 	it.DefaultSize = 10 * common.GibiByte
 	it.DefaultImageConfig = sapImageConfig(osVersion).InheritFrom(defaultEc2ImageConfigX86_64(osVersion, rhsm))
@@ -412,7 +412,7 @@ func mkAMIImgTypeAarch64() *rhel.ImageType {
 		[]string{"image"},
 	)
 
-	it.KernelOptions = "console=ttyS0,115200n8 console=tty0 net.ifnames=0 rd.blacklist=nouveau nvme_core.io_timeout=4294967295 iommu.strict=0"
+	it.KernelOptions = "console=ttyS0,115200n8 console=tty0 net.ifnames=0 nvme_core.io_timeout=4294967295 iommu.strict=0"
 	it.Bootable = true
 	it.DefaultSize = 10 * common.GibiByte
 	it.DefaultImageConfig = defaultAMIImageConfig()
@@ -437,7 +437,7 @@ func mkEC2ImgTypeAarch64(osVersion string, rhsm bool) *rhel.ImageType {
 	)
 
 	it.Compression = "xz"
-	it.KernelOptions = "console=ttyS0,115200n8 console=tty0 net.ifnames=0 rd.blacklist=nouveau nvme_core.io_timeout=4294967295 iommu.strict=0"
+	it.KernelOptions = "console=ttyS0,115200n8 console=tty0 net.ifnames=0 nvme_core.io_timeout=4294967295 iommu.strict=0"
 	it.Bootable = true
 	it.DefaultSize = 10 * common.GibiByte
 	it.DefaultImageConfig = defaultEc2ImageConfig(osVersion, rhsm)
@@ -450,11 +450,11 @@ func mkEC2ImgTypeAarch64(osVersion string, rhsm bool) *rhel.ImageType {
 // Used for RHEL distros.
 func appendRHSM(ic *distro.ImageConfig) *distro.ImageConfig {
 	rhsm := &distro.ImageConfig{
-		RHSMConfig: map[subscription.RHSMStatus]*osbuild.RHSMStageOptions{
+		RHSMConfig: map[subscription.RHSMStatus]*subscription.RHSMConfig{
 			subscription.RHSMConfigNoSubscription: {
 				// RHBZ#1932802
-				SubMan: &osbuild.RHSMStageOptionsSubMan{
-					Rhsmcertd: &osbuild.SubManConfigRHSMCERTDSection{
+				SubMan: subscription.SubManConfig{
+					Rhsmcertd: subscription.SubManRHSMCertdConfig{
 						AutoRegistration: common.ToPtr(true),
 					},
 					// Don't disable RHSM redhat.repo management on the AMI
@@ -468,8 +468,8 @@ func appendRHSM(ic *distro.ImageConfig) *distro.ImageConfig {
 			},
 			subscription.RHSMConfigWithSubscription: {
 				// RHBZ#1932802
-				SubMan: &osbuild.RHSMStageOptionsSubMan{
-					Rhsmcertd: &osbuild.SubManConfigRHSMCERTDSection{
+				SubMan: subscription.SubManConfig{
+					Rhsmcertd: subscription.SubManRHSMCertdConfig{
 						AutoRegistration: common.ToPtr(true),
 					},
 					// do not disable the redhat.repo management if the user

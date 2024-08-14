@@ -2,11 +2,10 @@ package rhel10
 
 import (
 	"github.com/osbuild/images/internal/common"
+	"github.com/osbuild/images/pkg/customizations/subscription"
 	"github.com/osbuild/images/pkg/distro"
 	"github.com/osbuild/images/pkg/distro/rhel"
-	"github.com/osbuild/images/pkg/osbuild"
 	"github.com/osbuild/images/pkg/rpmmd"
-	"github.com/osbuild/images/pkg/subscription"
 )
 
 func mkQcow2ImgType(d *rhel.Distribution) *rhel.ImageType {
@@ -49,31 +48,6 @@ func mkOCIImgType(d *rhel.Distribution) *rhel.ImageType {
 	it.DefaultImageConfig = qcowImageConfig(d)
 	it.KernelOptions = "console=tty0 console=ttyS0,115200n8 no_timer_check"
 	it.DefaultSize = 10 * common.GibiByte
-	it.Bootable = true
-	it.BasePartitionTables = defaultBasePartitionTables
-
-	return it
-}
-
-func mkOpenstackImgType() *rhel.ImageType {
-	it := rhel.NewImageType(
-		"openstack",
-		"disk.qcow2",
-		"application/x-qemu-disk",
-		map[string]rhel.PackageSetFunc{
-			rhel.OSPkgsKey: openstackCommonPackageSet,
-		},
-		rhel.DiskImage,
-		[]string{"build"},
-		[]string{"os", "image", "qcow2"},
-		[]string{"qcow2"},
-	)
-
-	it.DefaultImageConfig = &distro.ImageConfig{
-		Locale: common.ToPtr("en_US.UTF-8"),
-	}
-	it.KernelOptions = "ro"
-	it.DefaultSize = 4 * common.GibiByte
 	it.Bootable = true
 	it.BasePartitionTables = defaultBasePartitionTables
 
@@ -155,46 +129,23 @@ func qcow2CommonPackageSet(t *rhel.ImageType) rpmmd.PackageSet {
 	return ps
 }
 
-func openstackCommonPackageSet(t *rhel.ImageType) rpmmd.PackageSet {
-	ps := rpmmd.PackageSet{
-		Include: []string{
-			// Defaults
-			"@core",
-			"langpacks-en",
-			"tuned",
-
-			// From the lorax kickstart
-			"cloud-init",
-			"qemu-guest-agent",
-			"spice-vdagent",
-		},
-		Exclude: []string{
-			"dracut-config-rescue",
-			"rng-tools",
-		},
-	}
-
-	return ps
-}
-
 func qcowImageConfig(d *rhel.Distribution) *distro.ImageConfig {
 	ic := &distro.ImageConfig{
 		DefaultTarget: common.ToPtr("multi-user.target"),
 	}
 	if d.IsRHEL() {
-		ic.RHSMConfig = map[subscription.RHSMStatus]*osbuild.RHSMStageOptions{
+		ic.RHSMConfig = map[subscription.RHSMStatus]*subscription.RHSMConfig{
 			subscription.RHSMConfigNoSubscription: {
-				DnfPlugins: &osbuild.RHSMStageOptionsDnfPlugins{
-					ProductID: &osbuild.RHSMStageOptionsDnfPlugin{
-						Enabled: false,
+				DnfPlugins: subscription.SubManDNFPluginsConfig{
+					ProductID: subscription.DNFPluginConfig{
+						Enabled: common.ToPtr(false),
 					},
-					SubscriptionManager: &osbuild.RHSMStageOptionsDnfPlugin{
-						Enabled: false,
+					SubscriptionManager: subscription.DNFPluginConfig{
+						Enabled: common.ToPtr(false),
 					},
 				},
 			},
 		}
-
 	}
 	return ic
 }
