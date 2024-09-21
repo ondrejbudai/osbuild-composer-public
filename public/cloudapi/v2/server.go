@@ -26,6 +26,7 @@ import (
 	"github.com/osbuild/images/pkg/manifest"
 	"github.com/osbuild/images/pkg/ostree"
 	"github.com/osbuild/images/pkg/reporegistry"
+	"github.com/osbuild/images/pkg/sbom"
 	"github.com/ondrejbudai/osbuild-composer-public/public/auth"
 	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
@@ -170,6 +171,7 @@ func (s *Server) enqueueCompose(irs []imageRequest, channel string) (uuid.UUID, 
 		ModulePlatformID: distribution.ModulePlatformID(),
 		Arch:             arch.Name(),
 		Releasever:       distribution.Releasever(),
+		SbomType:         sbom.StandardTypeSpdx,
 	}, channel)
 	if err != nil {
 		return id, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
@@ -297,6 +299,7 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 			ModulePlatformID: distribution.ModulePlatformID(),
 			Arch:             arch.Name(),
 			Releasever:       distribution.Releasever(),
+			SbomType:         sbom.StandardTypeSpdx,
 		}, channel)
 		if err != nil {
 			return id, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
@@ -399,8 +402,9 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 			},
 			Targets:            targets,
 			ManifestDynArgsIdx: common.ToPtr(1),
+			DepsolveDynArgsIdx: common.ToPtr(2),
 			ImageBootMode:      ir.imageType.BootMode().String(),
-		}, []uuid.UUID{initID, manifestJobID}, channel)
+		}, []uuid.UUID{initID, manifestJobID, depsolveJobID}, channel)
 		if err != nil {
 			return id, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
 		}

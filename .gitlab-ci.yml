@@ -399,19 +399,16 @@ koji.sh (cloud upload):
   parallel:
     matrix:
       - RUNNER:
-          - aws/rhel-8.10-ga-x86_64
           - aws/rhel-9.4-ga-x86_64
         INTERNAL_NETWORK: ["true"]
         CLOUD_TARGET: aws
         IMAGE_TYPE: aws-rhui
       - RUNNER:
-          - aws/rhel-8.10-ga-x86_64
           - aws/rhel-9.4-ga-x86_64
         INTERNAL_NETWORK: ["true"]
         CLOUD_TARGET: azure
         IMAGE_TYPE: azure-rhui
       - RUNNER:
-          - aws/rhel-8.10-ga-x86_64
           - aws/rhel-9.4-ga-x86_64
         INTERNAL_NETWORK: ["true"]
         CLOUD_TARGET: gcp
@@ -429,7 +426,6 @@ koji.sh (cloudapi):
     matrix:
       - *fedora_runners
       - RUNNER:
-          - aws/rhel-8.10-ga-x86_64
           - aws/rhel-9.4-ga-x86_64
         INTERNAL_NETWORK: ["true"]
 
@@ -707,7 +703,7 @@ aws_s3.sh:
   variables:
     SCRIPT: aws_s3.sh
 
-RHEL 9 on 8:
+RHEL 8 on 9 (Koji):
   stage: test
   extends: .terraform
   rules:
@@ -717,9 +713,23 @@ RHEL 9 on 8:
     - schutzbot/deploy.sh
     - /usr/libexec/tests/osbuild-composer/koji.sh
   variables:
-    RUNNER: aws/rhel-8.10-ga-x86_64
+    RUNNER: aws/rhel-9.4-ga-x86_64
     INTERNAL_NETWORK: "true"
-    DISTRO_CODE: rhel-91
+    DISTRO_CODE: rhel-8.10
+
+RHEL 10 on 9 (Koji):
+  stage: test
+  extends: .terraform
+  rules:
+    - !reference [.upstream_and_ga_rules_all, rules]
+    - !reference [.ga_rules_all, rules]
+  script:
+    - schutzbot/deploy.sh
+    - /usr/libexec/tests/osbuild-composer/koji.sh
+  variables:
+    RUNNER: aws/rhel-9.4-ga-x86_64
+    INTERNAL_NETWORK: "true"
+    DISTRO_CODE: rhel-10.0
 
 Multi-tenancy:
   stage: test

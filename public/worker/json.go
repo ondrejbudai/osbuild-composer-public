@@ -9,6 +9,7 @@ import (
 	"github.com/osbuild/images/pkg/manifest"
 	"github.com/osbuild/images/pkg/osbuild"
 	"github.com/osbuild/images/pkg/rpmmd"
+	"github.com/osbuild/images/pkg/sbom"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker/clienterrors"
 	"golang.org/x/exp/slices"
@@ -20,10 +21,18 @@ import (
 
 type OSBuildJob struct {
 	Manifest manifest.OSBuildManifest `json:"manifest,omitempty"`
+
 	// Index of the ManifestJobByIDResult instance in the job's dynamic arguments slice
-	ManifestDynArgsIdx *int             `json:"manifest_dyn_args_idx,omitempty"`
-	Targets            []*target.Target `json:"targets,omitempty"`
-	PipelineNames      *PipelineNames   `json:"pipeline_names,omitempty"`
+	ManifestDynArgsIdx *int `json:"manifest_dyn_args_idx,omitempty"`
+
+	// Index of the DepsolveJobResult instance in the job's dynamic arguments slice
+	// This is used only for Koji composes, which need to have access to SBOMs produced
+	// as part of the depsolve job, so that they can be uploaded to Koji.
+	DepsolveDynArgsIdx *int `json:"depsolve_dyn_args_idx,omitempty"`
+
+	Targets       []*target.Target `json:"targets,omitempty"`
+	PipelineNames *PipelineNames   `json:"pipeline_names,omitempty"`
+
 	// The ImageBootMode is just copied to the result by the worker, so that
 	// the value can be accessed job which depend on it.
 	// (string representation of distro.BootMode values)
@@ -159,7 +168,6 @@ type KojiFinalizeJobResult struct {
 
 // PipelineNames is used to provide two pieces of information related to a job:
 // 1. A categorization of each pipeline into one of two groups
-// // 2. A pipeline ordering when the lists are concatenated: build -> os
 // 2. A pipeline ordering when the lists are concatenated: build -> os
 type PipelineNames struct {
 	Build   []string `json:"build"`
@@ -181,6 +189,10 @@ type DepsolveJob struct {
 	ModulePlatformID string                        `json:"module_platform_id"`
 	Arch             string                        `json:"arch"`
 	Releasever       string                        `json:"releasever"`
+
+	// NB: for now, the worker supports only a single SBOM type, but keep the options
+	// open for the future by passing the actual type and not just bool.
+	SbomType sbom.StandardType `json:"sbom_type,omitempty"`
 }
 
 type ErrorType string
@@ -190,8 +202,15 @@ const (
 	OtherErrorType    ErrorType = "other"
 )
 
+// SbomDoc represents a single SBOM document result.
+type SbomDoc struct {
+	DocType  sbom.StandardType `json:"type"`
+	Document json.RawMessage   `json:"document"`
+}
+
 type DepsolveJobResult struct {
 	PackageSpecs map[string][]rpmmd.PackageSpec `json:"package_specs"`
+	SbomDocs     map[string]SbomDoc             `json:"sbom_docs,omitempty"`
 	RepoConfigs  map[string][]rpmmd.RepoConfig  `json:"repo_configs"`
 	Error        string                         `json:"error"`
 	ErrorType    ErrorType                      `json:"error_type"`
