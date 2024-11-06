@@ -78,16 +78,30 @@ func NewComposer(config *ComposerConfigFile, stateDir, cacheDir string) (*Compos
 	}
 
 	repoConfigs, err := reporegistry.LoadAllRepositories(repositoryConfigs)
-	if err != nil {
-		return nil, fmt.Errorf("error loading repository definitions: %v", err)
+	switch err.(type) {
+	case *reporegistry.NoReposLoadedError:
+		if !c.config.IgnoreMissingRepos {
+			return nil, fmt.Errorf("error loading repository definitions: %w", err)
+		}
+		// running without repositories is allowed: log message and continue
+		logrus.Info(err.Error())
+		logrus.Info("ignore_missing_repos enabled: continuing")
+	case nil:
+		c.repos = reporegistry.NewFromDistrosRepoConfigs(repoConfigs)
+	default:
+		return nil, fmt.Errorf("error loading repository definitions: %w", err)
 	}
-	c.repos = reporegistry.NewFromDistrosRepoConfigs(repoConfigs)
 
 	c.solver = dnfjson.NewBaseSolver(path.Join(c.cacheDir, "rpmmd"))
 	c.solver.SetDNFJSONPath(c.config.DNFJson)
 
-	// Clean up the cache, removes unknown distros and files
-	c.solver.CleanupOldCacheDirs(c.repos.ListDistros())
+	// Clean up the cache, removes unknown distros and files.
+	// If no repos are configured, the cache is cleared out completely.
+	var repoDistros []string
+	if c.repos != nil {
+		repoDistros = c.repos.ListDistros()
+	}
+	c.solver.CleanupOldCacheDirs(repoDistros)
 
 	var jobs jobqueue.JobQueue
 	if config.Worker.PGDatabase != "" {
@@ -134,6 +148,10 @@ func NewComposer(config *ComposerConfigFile, stateDir, cacheDir string) (*Compos
 }
 
 func (c *Composer) InitWeldr(weldrListener net.Listener, distrosImageTypeDenylist map[string][]string) (err error) {
+	// Weldr requires repository definitions, so error out if none were loaded
+	if c.repos == nil {
+		return fmt.Errorf("weldr API requires repository definitions but none were loaded")
+	}
 	c.weldr, err = weldr.New(c.repos, c.stateDir, c.solver, c.distros, c.logger, c.workers, distrosImageTypeDenylist)
 	if err != nil {
 		return err
