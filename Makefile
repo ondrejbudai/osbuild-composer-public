@@ -19,6 +19,10 @@ SRCDIR ?= .
 
 RST2MAN ?= rst2man
 
+.ONESHELL:
+SHELL := /bin/bash
+.SHELLFLAGS := -ec -o pipefail
+
 # see https://hub.docker.com/r/docker/golangci-lint/tags
 # v1.55 to get golang 1.21 (1.21.3)
 # v1.53 to get golang 1.20 (1.20.5)
@@ -86,6 +90,7 @@ help:
 	@echo "    clean:              Remove all built binaries"
 	@echo "    man:                Generate all man-pages"
 	@echo "    unit-tests:         Run unit tests"
+	@echo "    db-tests:           Run postgres DB tests"
 	@echo "    push-check:         Replicates the github workflow checks as close as possible"
 	@echo "                        (do this before pushing!)"
 	@echo "    lint:               Runs linters as close as github workflow as possible"
@@ -139,6 +144,7 @@ build: $(BUILDDIR)/bin/
 	go build -o $<osbuild-service-maintenance ./cmd/osbuild-service-maintenance
 	go build -o $<osbuild-jobsite-manager ./cmd/osbuild-jobsite-manager
 	go build -o $<osbuild-jobsite-builder ./cmd/osbuild-jobsite-builder
+	# also build the test binaries
 	go test -c -tags=integration -o $<osbuild-composer-cli-tests ./cmd/osbuild-composer-cli-tests/main_test.go
 	go test -c -tags=integration -o $<osbuild-weldr-tests ./internal/client/
 	go test -c -tags=integration -o $<osbuild-dnf-json-tests ./cmd/osbuild-dnf-json-tests/main_test.go
@@ -164,7 +170,7 @@ install: build
 	systemctl daemon-reload
 
 .PHONY: clean
-clean:
+clean: db-tests-prune
 	rm -rf $(BUILDDIR)/bin/
 	rm -rf $(CURDIR)/rpmbuild
 	rm -rf container_composer_golangci_built.info
@@ -236,7 +242,6 @@ worker-key-pair: ca
 	rm /etc/osbuild-composer/worker-csr.pem
 
 .PHONY: unit-tests
-.ONESHELL:
 unit-tests:
 	go test -race -covermode=atomic -coverprofile=coverage.txt -coverpkg=$$(go list ./... | tr "\n" ",") ./...
 	# go modules with go.mod in subdirs are not tested automatically
@@ -247,6 +252,42 @@ unit-tests:
 coverage-report: unit-tests
 	go tool cover -o coverage.html -html coverage.txt
 	go tool cover -o coverage_splunk_logger.html -html coverage_splunk_logger.txt
+
+CONTAINER_EXECUTABLE ?= podman
+
+.PHONY: db-tests-prune
+db-tests-prune:
+	-$(CONTAINER_EXECUTABLE) stop composer-test-db
+	-$(CONTAINER_EXECUTABLE) rm composer-test-db
+
+CHECK_DB_PORT_READY=$(CONTAINER_EXECUTABLE) exec composer-test-db pg_isready -d osbuildcomposer
+CHECK_DB_UP=$(CONTAINER_EXECUTABLE) exec composer-test-db psql -U postgres -d osbuildcomposer -c "SELECT 1"
+
+.PHONY: db-tests
+db-tests:
+	-$(CONTAINER_EXECUTABLE) stop composer-test-db 2>/dev/null || echo "DB already stopped"
+	-$(CONTAINER_EXECUTABLE) rm composer-test-db 2>/dev/null || echo "DB already removed"
+	$(CONTAINER_EXECUTABLE) run -d \
+      --name composer-test-db \
+      --env POSTGRES_PASSWORD=foobar \
+      --env POSTGRES_DB=osbuildcomposer \
+      --publish 5432:5432 \
+      postgres:12
+	echo "Waiting for DB"
+	until $(CHECK_DB_PORT_READY) ; do sleep 1; done
+	until $(CHECK_DB_UP) ; do sleep 1; done
+	env PGPASSWORD=foobar \
+	    PGDATABASE=osbuildcomposer \
+	    PGUSER=postgres \
+	    PGHOST=localhost \
+	    PGPORT=5432 \
+	    ./tools/dbtest-run-migrations.sh
+	./tools/dbtest-entrypoint.sh
+	# we'll leave the composer-test-db container running
+	# for easier inspection is something fails
+
+.PHONY: test
+test: unit-tests db-tests  # run all tests
 
 #
 # Building packages
@@ -303,9 +344,14 @@ container_composer_golangci_built.info: Makefile Containerfile_golangci_lint too
 	echo "Image last built on" > $@
 	date >> $@
 
+# trying to catch our use cases of the github action implementation
+# https://github.com/ludeeus/action-shellcheck/blob/master/action.yaml#L164
+SHELLCHECK_FILES=$(shell find . -name "*.sh" -not -regex "./vendor/.*")
+
 .PHONY: lint
 lint: $(GOLANGCI_LINT_CACHE_DIR) container_composer_golangci_built.info
 	podman run -t --rm -v $(SRCDIR):/app:z -v $(GOLANGCI_LINT_CACHE_DIR):/root/.cache:z -w /app $(GOLANGCI_COMPOSER_IMAGE) golangci-lint run -v
+	echo "$(SHELLCHECK_FILES)" | xargs shellcheck --shell bash -e SC1091 -e SC2002 -e SC2317
 
 # The OpenShift CLI - maybe get it from https://access.redhat.com/downloads/content/290
 OC_EXECUTABLE ?= oc

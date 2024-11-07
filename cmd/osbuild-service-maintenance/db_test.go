@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"github.com/ondrejbudai/osbuild-composer-public/public/jobqueue/jobqueuetest"
 	"testing"
 
 	"github.com/google/uuid"
@@ -13,13 +14,11 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/pkg/jobqueue/dbjobqueue"
 )
 
-const url = "postgres://postgres:foobar@localhost:5432/osbuildcomposer"
-
 func TestDBJobQueueMaintenance(t *testing.T) {
-	dbMaintenance, err := newDB(url)
+	dbMaintenance, err := newDB(jobqueuetest.TestDbURL())
 	require.NoError(t, err)
 	defer dbMaintenance.Close()
-	q, err := dbjobqueue.New(url)
+	q, err := dbjobqueue.New(jobqueuetest.TestDbURL())
 	require.NoError(t, err)
 	defer q.Close()
 
