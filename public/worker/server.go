@@ -72,6 +72,8 @@ type Config struct {
 	BasePath             string
 	JWTEnabled           bool
 	TenantProviderFields []string
+	JobTimeout           time.Duration
+	JobWatchFreq         time.Duration
 	WorkerTimeout        time.Duration
 	WorkerWatchFreq      time.Duration
 }
@@ -83,6 +85,12 @@ func NewServer(logger *log.Logger, jobs jobqueue.JobQueue, config Config) *Serve
 		config: config,
 	}
 
+	if s.config.JobTimeout == 0 {
+		s.config.JobTimeout = time.Second * 120
+	}
+	if s.config.JobWatchFreq == 0 {
+		s.config.JobWatchFreq = time.Second * 30
+	}
 	if s.config.WorkerTimeout == 0 {
 		s.config.WorkerTimeout = time.Hour
 	}
@@ -125,12 +133,13 @@ func (s *Server) Handler() http.Handler {
 const maxHeartbeatRetries = 2
 
 // This function should be started as a goroutine
-// Every 30 seconds it goes through all running jobs, removing any unresponsive ones.
-// It fails jobs which fail to check if they cancelled for more than 2 minutes.
+
+// With default durations it goes through all running jobs every 30 seconds and fails any unresponsive
+// ones. Unresponsive jobs haven't checked whether or not they're cancelled in the past 2 minutes.
 func (s *Server) WatchHeartbeats() {
 	//nolint:staticcheck // avoid SA1015, this is an endless function
-	for range time.Tick(time.Second * 30) {
-		for _, token := range s.jobs.Heartbeats(time.Second * 120) {
+	for range time.Tick(s.config.JobWatchFreq) {
+		for _, token := range s.jobs.Heartbeats(s.config.JobTimeout) {
 			id, _ := s.jobs.IdFromToken(token)
 			logrus.Infof("Removing unresponsive job: %s\n", id)
 
@@ -708,7 +717,7 @@ func (s *Server) RequeueOrFinishJob(token uuid.UUID, maxRetries uint64, result j
 		}
 	}
 
-	err = s.jobs.RequeueOrFinishJob(jobId, maxRetries, result)
+	requeued, err := s.jobs.RequeueOrFinishJob(jobId, maxRetries, result)
 	if err != nil {
 		switch err {
 		case jobqueue.ErrNotRunning:
@@ -716,6 +725,14 @@ func (s *Server) RequeueOrFinishJob(token uuid.UUID, maxRetries uint64, result j
 		default:
 			return fmt.Errorf("error finishing job: %v", err)
 		}
+	}
+
+	if requeued {
+		jobInfo, err := s.jobInfo(jobId, nil)
+		if err != nil {
+			return fmt.Errorf("error requeueing job: %w", err)
+		}
+		prometheus.RequeueJobMetrics(jobInfo.JobType, jobInfo.Channel)
 	}
 
 	jobType, err := s.JobType(jobId)
