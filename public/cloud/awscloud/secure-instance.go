@@ -3,6 +3,7 @@ package awscloud
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -165,11 +166,19 @@ func (a *AWS) RunSecureInstance(iamProfile, keyName, cloudWatchGroup, hostname s
 		},
 		Type: ec2types.FleetTypeInstant,
 	})
+	// retrieve any instance information even if there's an error, that way the instance
+	// will be terminated before other resources are removed.
+	if createFleetOutput != nil {
+		if createFleetOutput.FleetId != nil {
+			secureInstance.FleetID = *createFleetOutput.FleetId
+		}
+		if len(createFleetOutput.Instances) > 0 && len(createFleetOutput.Instances[0].InstanceIds) > 0 {
+			secureInstance.InstanceID = createFleetOutput.Instances[0].InstanceIds[0]
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
-	secureInstance.FleetID = *createFleetOutput.FleetId
-	secureInstance.InstanceID = createFleetOutput.Instances[0].InstanceIds[0]
 
 	instWaiter := ec2.NewInstanceStatusOkWaiter(a.ec2)
 	err = instWaiter.Wait(
@@ -584,9 +593,10 @@ func (a *AWS) deleteSGIfExists(si *SecureInstance) error {
 }
 
 func (a *AWS) createFleet(input *ec2.CreateFleetInput) (*ec2.CreateFleetOutput, error) {
+	logCreateFleetInput(input)
 	createFleetOutput, err := a.ec2.CreateFleet(context.Background(), input)
 	if err != nil {
-		return nil, fmt.Errorf("Unable to create spot fleet: %w", err)
+		return createFleetOutput, fmt.Errorf("Unable to create spot fleet: %w", err)
 	}
 
 	retry, fleetErrs := doCreateFleetRetry(createFleetOutput)
@@ -594,20 +604,26 @@ func (a *AWS) createFleet(input *ec2.CreateFleetInput) (*ec2.CreateFleetOutput, 
 		logrus.Warnf("Received errors (%s) from CreateFleet, retrying CreateFleet with OnDemand instance", strings.Join(fleetErrs, "; "))
 		input.SpotOptions = nil
 		input.TargetCapacitySpecification.DefaultTargetCapacityType = ec2types.DefaultTargetCapacityTypeOnDemand
+		logCreateFleetInput(input)
 		createFleetOutput, err = a.ec2.CreateFleet(context.Background(), input)
 		if err != nil {
-			return nil, fmt.Errorf("Unable to create on demand fleet: %w", err)
+			return createFleetOutput, fmt.Errorf("Unable to create on demand fleet: %w", err)
 		}
+	} else {
+		logrus.Infof("Won't retry CreateFleet with OnDemand instance, retry: %v, errors: %s", retry, strings.Join(fleetErrs, "; "))
 	}
 
 	retry, fleetErrs = doCreateFleetRetry(createFleetOutput)
 	if len(fleetErrs) > 0 && retry {
 		logrus.Warnf("Received errors (%s) from CreateFleet with OnDemand instance option, retrying across availability zones", strings.Join(fleetErrs, "; "))
 		input.LaunchTemplateConfigs[0].Overrides = nil
+		logCreateFleetInput(input)
 		createFleetOutput, err = a.ec2.CreateFleet(context.Background(), input)
 		if err != nil {
-			return nil, fmt.Errorf("Unable to create on demand fleet across AZs: %w", err)
+			return createFleetOutput, fmt.Errorf("Unable to create on demand fleet across AZs: %w", err)
 		}
+	} else {
+		logrus.Infof("Won't retry CreateFleet across AZs, retry: %v, errors: %s", retry, strings.Join(fleetErrs, "; "))
 	}
 
 	if len(createFleetOutput.Errors) > 0 {
@@ -615,14 +631,14 @@ func (a *AWS) createFleet(input *ec2.CreateFleetInput) (*ec2.CreateFleetOutput, 
 		for _, fleetErr := range createFleetOutput.Errors {
 			fleetErrs = append(fleetErrs, fmt.Sprintf("%s: %s", *fleetErr.ErrorCode, *fleetErr.ErrorMessage))
 		}
-		return nil, fmt.Errorf("Unable to create fleet: %v", strings.Join(fleetErrs, "; "))
+		return createFleetOutput, fmt.Errorf("Unable to create fleet: %v", strings.Join(fleetErrs, "; "))
 	}
 
 	if len(createFleetOutput.Instances) != 1 {
-		return nil, fmt.Errorf("Unable to create fleet with exactly one instance, got %d instances", len(createFleetOutput.Instances))
+		return createFleetOutput, fmt.Errorf("Unable to create fleet with exactly one instance, got %d instances", len(createFleetOutput.Instances))
 	}
 	if len(createFleetOutput.Instances[0].InstanceIds) != 1 {
-		return nil, fmt.Errorf("Expected exactly one instance ID on fleet, got %d", len(createFleetOutput.Instances[0].InstanceIds))
+		return createFleetOutput, fmt.Errorf("Expected exactly one instance ID on fleet, got %d", len(createFleetOutput.Instances[0].InstanceIds))
 	}
 	return createFleetOutput, nil
 }
@@ -639,17 +655,29 @@ func doCreateFleetRetry(cfOutput *ec2.CreateFleetOutput) (bool, []string) {
 	msg := []string{}
 	retry := false
 	for _, err := range cfOutput.Errors {
+		logrus.Infof("Checking to retry fleet create on error %s (msg: %s)", *err.ErrorCode, *err.ErrorMessage)
 		if slices.Contains(retryCodes, *err.ErrorCode) {
 			retry = true
+			logrus.Infof("doCreateFleetRetry: setting retry to true")
 		}
 		msg = append(msg, fmt.Sprintf("%s: %s", *err.ErrorCode, *err.ErrorMessage))
 	}
 
 	// Do not retry in case an instance already exists, in that case just fail and let the worker terminate the SI
 	if len(cfOutput.Instances) > 0 && len(cfOutput.Instances[0].InstanceIds) > 0 {
+		logrus.Infof("doCreateFleetRetry: cancelling retry, instance already exists: %s", cfOutput.Instances[0].InstanceIds)
 		retry = false
 		msg = append(msg, fmt.Sprintf("Already launched instance (%s), aborting create fleet", cfOutput.Instances[0].InstanceIds))
 	}
 
+	logrus.Infof("doCreateFleetRetry: returning retry: %v, msg: %v", retry, msg)
 	return retry, msg
+}
+
+func logCreateFleetInput(input *ec2.CreateFleetInput) {
+	if inputJSON, err := json.Marshal(input); err != nil {
+		logrus.Warnf("Unable to marshal input for logging: %v", input)
+	} else {
+		logrus.Infof("Creating fleet with input: %s", inputJSON)
+	}
 }
