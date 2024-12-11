@@ -1,3 +1,5 @@
 package main
 
-var FilterReservations = filterReservations
+var FilterOnTooOld = filterOnTooOld
+var CheckValidParent = checkValidParent
+var AllTerminated = allTerminated
