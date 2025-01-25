@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"slices"
 	"sort"
 	"strconv"
@@ -105,33 +104,6 @@ func splitExtension(filename string) string {
 	}
 
 	return "." + strings.Join(filenameParts[1:], ".")
-}
-
-// isLocalSave checks the environment to see if a local save has been enabled
-// and tests the UploadOptions to see if it has been selected
-func isLocalSave(options *UploadOptions) (bool, error) {
-	if options == nil {
-		return false, nil
-	}
-
-	var local LocalUploadOptions
-	// This is a terrible way to do this, but it is imposed by the OpenAPI code generator so...
-	j, err := json.Marshal(*options)
-	if err != nil {
-		return false, nil
-	}
-	err = json.Unmarshal(j, &local)
-	if err != nil {
-		return false, nil
-	}
-
-	// Return an error if local_save is set but not enabled
-	_, enabled := os.LookupEnv("OSBUILD_LOCALSAVE")
-	if !enabled && local.LocalSave {
-		return false, HTTPError(ErrorLocalSaveNotEnabled)
-	}
-
-	return enabled && local.LocalSave, nil
 }
 
 type imageRequest struct {
@@ -246,7 +218,7 @@ func imageTypeFromApiImageType(it ImageTypes, arch distro.Arch) string {
 	return ""
 }
 
-func targetResultToUploadStatus(t *target.TargetResult) (*UploadStatus, error) {
+func (h *apiHandlers) targetResultToUploadStatus(jobId uuid.UUID, t *target.TargetResult) (*UploadStatus, error) {
 	var us *UploadStatus
 	var uploadType UploadTypes
 	var uploadOptions interface{}
@@ -299,6 +271,14 @@ func targetResultToUploadStatus(t *target.TargetResult) (*UploadStatus, error) {
 		}
 	case target.TargetNameWorkerServer:
 		uploadType = UploadTypesLocal
+		workerServerOptions := t.Options.(*target.WorkerServerTargetResultOptions)
+		absPath, err := h.server.workers.JobArtifactLocation(jobId, workerServerOptions.ArtifactRelPath)
+		if err != nil {
+			return nil, fmt.Errorf("unable to find job artefact: %w", err)
+		}
+		uploadOptions = LocalUploadStatus{
+			ArtifactPath: absPath,
+		}
 	default:
 		return nil, fmt.Errorf("unknown upload target: %s", t.Name)
 	}
@@ -347,7 +327,7 @@ func (h *apiHandlers) getComposeStatusImpl(ctx echo.Context, id string) error {
 			statuses := make([]UploadStatus, len(result.TargetResults))
 			for idx := range result.TargetResults {
 				tr := result.TargetResults[idx]
-				us, err := targetResultToUploadStatus(tr)
+				us, err := h.targetResultToUploadStatus(jobId, tr)
 				if err != nil {
 					return HTTPError(ErrorUnknownUploadTarget)
 				}
@@ -412,7 +392,7 @@ func (h *apiHandlers) getComposeStatusImpl(ctx echo.Context, id string) error {
 				for idx := range buildJobResult.TargetResults {
 					tr := buildJobResult.TargetResults[idx]
 					if tr.Name != target.TargetNameKoji {
-						us, err := targetResultToUploadStatus(tr)
+						us, err := h.targetResultToUploadStatus(jobId, tr)
 						if err != nil {
 							return HTTPError(ErrorUnknownUploadTarget)
 						}
@@ -1173,7 +1153,7 @@ func (h *apiHandlers) postCloneComposeImpl(ctx echo.Context, id string) error {
 		return HTTPError(ErrorSeveralUploadTargets)
 	}
 	var us *UploadStatus
-	us, err = targetResultToUploadStatus(osbuildResult.TargetResults[0])
+	us, err = h.targetResultToUploadStatus(jobId, osbuildResult.TargetResults[0])
 	if err != nil {
 		return HTTPError(ErrorUnknownUploadTarget)
 	}
