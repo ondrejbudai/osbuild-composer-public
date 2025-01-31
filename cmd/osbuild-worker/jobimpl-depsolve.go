@@ -24,6 +24,13 @@ type RepositoryMTLSConfig struct {
 	Proxy          *url.URL
 }
 
+// SetupRepoSSL copies the CA, Key, and Cert to the RepoConfig
+func (rmc *RepositoryMTLSConfig) SetupRepoSSL(repo *rpmmd.RepoConfig) {
+	repo.SSLCACert = rmc.CA
+	repo.SSLClientKey = rmc.MTLSClientKey
+	repo.SSLClientCert = rmc.MTLSClientCert
+}
+
 func (rmc *RepositoryMTLSConfig) CompareBaseURL(baseURLStr string) (bool, error) {
 	baseURL, err := url.Parse(baseURLStr)
 	if err != nil {
@@ -120,13 +127,21 @@ func workerClientErrorFrom(err error, logWithId *logrus.Entry) *clienterrors.Err
 
 func (impl *DepsolveJobImpl) Run(job worker.Job) error {
 	logWithId := logrus.WithField("jobId", job.Id())
+
+	var result worker.DepsolveJobResult
+	// ALWAYS return a result
+	defer func() {
+		err := job.Update(&result)
+		if err != nil {
+			logWithId.Errorf("Error reporting job result: %v", err)
+		}
+	}()
+
 	var args worker.DepsolveJob
 	err := job.Args(&args)
 	if err != nil {
 		return err
 	}
-
-	var result worker.DepsolveJobResult
 
 	if impl.RepositoryMTLSConfig != nil {
 		for pkgsetsi, pkgsets := range args.PackageSets {
@@ -139,9 +154,7 @@ func (impl *DepsolveJobImpl) Run(job worker.Job) error {
 							return err
 						}
 						if match {
-							args.PackageSets[pkgsetsi][pkgseti].Repositories[repoi].SSLCACert = impl.RepositoryMTLSConfig.CA
-							args.PackageSets[pkgsetsi][pkgseti].Repositories[repoi].SSLClientKey = impl.RepositoryMTLSConfig.MTLSClientKey
-							args.PackageSets[pkgsetsi][pkgseti].Repositories[repoi].SSLClientCert = impl.RepositoryMTLSConfig.MTLSClientCert
+							impl.RepositoryMTLSConfig.SetupRepoSSL(&args.PackageSets[pkgsetsi][pkgseti].Repositories[repoi])
 						}
 					}
 				}
@@ -158,10 +171,7 @@ func (impl *DepsolveJobImpl) Run(job worker.Job) error {
 		logWithId.Errorf("Error during rpm repo cache cleanup: %s", err.Error())
 	}
 
-	err = job.Update(&result)
-	if err != nil {
-		return fmt.Errorf("Error reporting job result: %v", err)
-	}
+	// NOTE: result is returned by deferred function above
 
 	return nil
 }

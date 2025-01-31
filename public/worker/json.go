@@ -195,13 +195,6 @@ type DepsolveJob struct {
 	SbomType sbom.StandardType `json:"sbom_type,omitempty"`
 }
 
-type ErrorType string
-
-const (
-	DepsolveErrorType ErrorType = "depsolve"
-	OtherErrorType    ErrorType = "other"
-)
-
 // SbomDoc represents a single SBOM document result.
 type SbomDoc struct {
 	DocType  sbom.StandardType `json:"type"`
@@ -212,8 +205,25 @@ type DepsolveJobResult struct {
 	PackageSpecs map[string][]rpmmd.PackageSpec `json:"package_specs"`
 	SbomDocs     map[string]SbomDoc             `json:"sbom_docs,omitempty"`
 	RepoConfigs  map[string][]rpmmd.RepoConfig  `json:"repo_configs"`
-	Error        string                         `json:"error"`
-	ErrorType    ErrorType                      `json:"error_type"`
+	JobResult
+}
+
+// SearchPackagesJob defines the parameters for a dnf metadata search
+// It will search the included repositories for packages matching the
+// package strings
+// Package names support globs using '*' and will search for a substring
+// match if '*foopkg*' is used.
+type SearchPackagesJob struct {
+	Packages         []string           `json:"packages"`
+	Repositories     []rpmmd.RepoConfig `json:"repos"`
+	ModulePlatformID string             `json:"module_platform_id"`
+	Arch             string             `json:"arch"`
+	Releasever       string             `json:"releasever"`
+}
+
+// SearchPackagesJobResult returns the details of the search packages
+type SearchPackagesJobResult struct {
+	Packages rpmmd.PackageList `json:"packages"`
 	JobResult
 }
 

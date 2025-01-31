@@ -33,6 +33,7 @@ const (
 	JobTypeKojiInit         string = "koji-init"
 	JobTypeKojiFinalize     string = "koji-finalize"
 	JobTypeDepsolve         string = "depsolve"
+	JobTypeSearchPackages   string = "search-packages"
 	JobTypeManifestIDOnly   string = "manifest-id-only"
 	JobTypeContainerResolve string = "container-resolve"
 	JobTypeFileResolve      string = "file-resolve"
@@ -202,6 +203,10 @@ func (s *Server) EnqueueDepsolve(job *DepsolveJob, channel string) (uuid.UUID, e
 	return s.enqueue(JobTypeDepsolve, job, nil, channel)
 }
 
+func (s *Server) EnqueueSearchPackages(job *SearchPackagesJob, channel string) (uuid.UUID, error) {
+	return s.enqueue(JobTypeSearchPackages, job, nil, channel)
+}
+
 func (s *Server) EnqueueManifestJobByID(job *ManifestJobByID, dependencies []uuid.UUID, channel string) (uuid.UUID, error) {
 	if len(dependencies) == 0 {
 		panic("EnqueueManifestJobByID has no dependencies, expected at least a depsolve job")
@@ -260,6 +265,14 @@ func (s *Server) JobDependencyChainErrors(id uuid.UUID) (*clienterrors.Error, er
 			return nil, err
 		}
 		jobResult = &depsolveJR.JobResult
+
+	case JobTypeSearchPackages:
+		var searchJR SearchPackagesJobResult
+		jobInfo, err = s.SearchPackagesJobInfo(id, &searchJR)
+		if err != nil {
+			return nil, err
+		}
+		jobResult = &searchJR.JobResult
 
 	case JobTypeManifestIDOnly:
 		var manifestJR ManifestJobByIDResult
@@ -407,12 +420,19 @@ func (s *Server) DepsolveJobInfo(id uuid.UUID, result *DepsolveJobResult) (*JobI
 		return nil, fmt.Errorf("expected %q, found %q job instead", JobTypeDepsolve, jobInfo.JobType)
 	}
 
-	if result.JobError == nil && result.Error != "" {
-		if result.ErrorType == DepsolveErrorType {
-			result.JobError = clienterrors.New(clienterrors.ErrorDNFDepsolveError, result.Error, nil)
-		} else {
-			result.JobError = clienterrors.New(clienterrors.ErrorRPMMDError, result.Error, nil)
-		}
+	return jobInfo, nil
+}
+
+// SearchPackagesJobInfo returns JobInfo for a Search job
+// and populates the result with the SearchJobResult data
+func (s *Server) SearchPackagesJobInfo(id uuid.UUID, result *SearchPackagesJobResult) (*JobInfo, error) {
+	jobInfo, err := s.jobInfo(id, result)
+	if err != nil {
+		return nil, err
+	}
+
+	if jobInfo.JobType != JobTypeSearchPackages {
+		return nil, fmt.Errorf("expected %q, found %q job instead", JobTypeSearchPackages, jobInfo.JobType)
 	}
 
 	return jobInfo, nil
@@ -795,6 +815,14 @@ func (s *Server) RequeueOrFinishJob(token uuid.UUID, maxRetries uint64, result j
 			return err
 		}
 		jobResult = &depsolveJR.JobResult
+
+	case JobTypeSearchPackages:
+		var searchJR SearchPackagesJobResult
+		jobInfo, err = s.SearchPackagesJobInfo(jobId, &searchJR)
+		if err != nil {
+			return err
+		}
+		jobResult = &searchJR.JobResult
 
 	case JobTypeManifestIDOnly:
 		var manifestJR ManifestJobByIDResult
