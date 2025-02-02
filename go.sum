@@ -541,8 +541,8 @@ github.com/openshift-online/ocm-sdk-go v0.1.438 h1:tsLCCUzbLCTL4RZG02y9RuopmGCXp
 github.com/openshift-online/ocm-sdk-go v0.1.438/go.mod h1:CiAu2jwl3ITKOxkeV0Qnhzv4gs35AmpIzVABQLtcI2Y=
 github.com/oracle/oci-go-sdk/v54 v54.0.0 h1:CDLjeSejv2aDpElAJrhKpi6zvT/zhZCZuXchUUZ+LS4=
 github.com/oracle/oci-go-sdk/v54 v54.0.0/go.mod h1:+t+yvcFGVp+3ZnztnyxqXfQDsMlq8U25faBLa+mqCMc=
-github.com/osbuild/images v0.111.0 h1:mnPLdSin/q1ZTaGZVJHepsikguFjUMAWblQdPgvZ02M=
-github.com/osbuild/images v0.111.0/go.mod h1:58tzp7jV50rjaH9gMpvmQdVati0c4TaC5Op7wmSD/tY=
+github.com/osbuild/images v0.112.0 h1:+pKwPniwYTRRgist6V+7DQfZEg7osddl1z4pASecq4M=
+github.com/osbuild/images v0.112.0/go.mod h1:58tzp7jV50rjaH9gMpvmQdVati0c4TaC5Op7wmSD/tY=
 github.com/osbuild/osbuild-composer/pkg/splunk_logger v0.0.0-20240814102216-0239db53236d h1:r9BFPDv0uuA9k1947Jybcxs36c/pTywWS1gjeizvtcQ=
 github.com/osbuild/osbuild-composer/pkg/splunk_logger v0.0.0-20240814102216-0239db53236d/go.mod h1:zR1iu/hOuf+OQNJlk70tju9IqzzM4ycq0ectkFBm94U=
 github.com/osbuild/pulp-client v0.1.0 h1:L0C4ezBJGTamN3BKdv+rKLuq/WxXJbsFwz/Hj7aEmJ8=
@@ -656,8 +656,8 @@ github.com/vbatts/tar-split v0.11.5 h1:3bHCTIheBm1qFTcgh9oPu+nNBtX+XJIupG/vacinC
 github.com/vbatts/tar-split v0.11.5/go.mod h1:yZbwRsSeGjusneWgA781EKej9HF8vme8okylkAeNKLk=
 github.com/vbauerster/mpb/v8 v8.7.5 h1:hUF3zaNsuaBBwzEFoCvfuX3cpesQXZC0Phm/JcHZQ+c=
 github.com/vbauerster/mpb/v8 v8.7.5/go.mod h1:bRCnR7K+mj5WXKsy0NWB6Or+wctYGvVwKn6huwvxKa0=
-github.com/vmware/govmomi v0.42.0 h1:MbvAlVfjNBE1mHMaQ7yOSop1KLB0/93x6VAGuCtjqtI=
-github.com/vmware/govmomi v0.42.0/go.mod h1:1H5LWwsBif8HKZqbFp0FdoKTHyJE4FzL6ACequMKYQg=
+github.com/vmware/govmomi v0.48.0 h1:CP5bCvkDNGkmn29UlcJKTWMLwDg3iusP8anrZnedWrg=
+github.com/vmware/govmomi v0.48.0/go.mod h1:bYwUHpGpisE4AOlDl5eph90T+cjJMIcKx/kaa5v5rQM=
 github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb h1:zGWFAtiMcyryUHoUjUJX0/lt1H2+i2Ka2n+D3DImSNo=
 github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb/go.mod h1:N2zxlSyiKSe5eX1tZViRH5QA0qijqEDrYZiPEAiq3wU=
 github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 h1:EzJWgHovont7NscjpAxXsDA8S8BMYve8Y5+7cuRE7R0=

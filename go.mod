@@ -44,7 +44,7 @@ require (
 	github.com/labstack/gommon v0.4.2
 	github.com/openshift-online/ocm-sdk-go v0.1.438
 	github.com/oracle/oci-go-sdk/v54 v54.0.0
-	github.com/osbuild/images v0.111.0
+	github.com/osbuild/images v0.112.0
 	github.com/osbuild/osbuild-composer/pkg/splunk_logger v0.0.0-20240814102216-0239db53236d
 	github.com/osbuild/pulp-client v0.1.0
 	github.com/prometheus/client_golang v1.20.2
@@ -53,7 +53,7 @@ require (
 	github.com/spf13/cobra v1.8.1
 	github.com/stretchr/testify v1.10.0
 	github.com/ubccr/kerby v0.0.0-20230802201021-412be7bfaee5
-	github.com/vmware/govmomi v0.42.0
+	github.com/vmware/govmomi v0.48.0
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56
 	golang.org/x/oauth2 v0.25.0
 	golang.org/x/sync v0.10.0
