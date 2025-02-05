@@ -37,6 +37,47 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /composes/:
+    get:
+      operationId: getComposeList
+      summary: The list of composes
+      security:
+        - Bearer: []
+      description: |-
+        Get the list of composes. They may be completed, uploaded,
+        locally saved, or failed.
+      responses:
+        '200':
+          description: list of composes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComposeList'
+        '401':
+          description: Auth token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Unauthorized to perform operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Unknown compose id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Unexpected error occurred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /composes/{id}:
     get:
       operationId: getComposeStatus
@@ -485,6 +526,27 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /distributions:
+    get:
+      operationId: getDistributionList
+      summary: |-
+        Get all of the supported distribution repository details
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: Distribution repositories
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DistributionList'
+        '500':
+          description: Unexpected error occurred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /errors/{id}:
     get:
       operationId: getError
@@ -635,6 +697,37 @@ components:
             type: array
             items:
               $ref: '#/components/schemas/Error'
+
+    ComposeList:
+      allOf:
+        - $ref: '#/components/schemas/List'
+        - type: object
+          required:
+            - items
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/ComposeStatus'
+
+    DistributionList:
+      properties:
+        map:
+          type: object
+          description: Distribution name
+          additionalProperties:
+            map:
+              type: object
+              description: Architecture name
+              additionalProperties:
+                map:
+                  type: object
+                  description: Image type name
+                  additionalProperties:
+                    type: array
+                    description: Repository used for this distro:arch:image-type
+                    items:
+                      $ref: '#/components/schemas/BlueprintRepository'
 
     ComposeStatus:
       allOf:

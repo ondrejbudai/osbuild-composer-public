@@ -2,6 +2,7 @@
 package v2
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -295,6 +296,30 @@ func (h *apiHandlers) targetResultToUploadStatus(jobId uuid.UUID, t *target.Targ
 	return us, nil
 }
 
+// GetComposeList returns a list of the root job UUIDs
+func (h *apiHandlers) GetComposeList(ctx echo.Context) error {
+	jobs, err := h.server.workers.AllRootJobIDs()
+	if err != nil {
+		return HTTPErrorWithInternal(ErrorGettingComposeList, err)
+	}
+
+	// Gather up the details of each job
+	var stats []ComposeStatus
+	for _, jid := range jobs {
+		s, err := h.getJobIDComposeStatus(jid)
+		if err != nil {
+			// TODO log this error?
+			continue
+		}
+		stats = append(stats, s)
+	}
+	slices.SortFunc(stats, func(a, b ComposeStatus) int {
+		return cmp.Compare(a.Id, b.Id)
+	})
+
+	return ctx.JSON(http.StatusOK, stats)
+}
+
 func (h *apiHandlers) GetComposeStatus(ctx echo.Context, id string) error {
 	return h.server.EnsureJobChannel(h.getComposeStatusImpl)(ctx, id)
 }
@@ -305,21 +330,31 @@ func (h *apiHandlers) getComposeStatusImpl(ctx echo.Context, id string) error {
 		return HTTPError(ErrorInvalidComposeId)
 	}
 
+	response, err := h.getJobIDComposeStatus(jobId)
+	if err != nil {
+		return err
+	}
+	return ctx.JSON(http.StatusOK, response)
+}
+
+// getJobIDComposeStatus returns the ComposeStatus for the job
+// or an HTTPError
+func (h *apiHandlers) getJobIDComposeStatus(jobId uuid.UUID) (ComposeStatus, error) {
 	jobType, err := h.server.workers.JobType(jobId)
 	if err != nil {
-		return HTTPError(ErrorComposeNotFound)
+		return ComposeStatus{}, HTTPError(ErrorComposeNotFound)
 	}
 
 	if jobType == worker.JobTypeOSBuild {
 		var result worker.OSBuildJobResult
 		jobInfo, err := h.server.workers.OSBuildJobInfo(jobId, &result)
 		if err != nil {
-			return HTTPError(ErrorMalformedOSBuildJobResult)
+			return ComposeStatus{}, HTTPError(ErrorMalformedOSBuildJobResult)
 		}
 
 		jobError, err := h.server.workers.JobDependencyChainErrors(jobId)
 		if err != nil {
-			return HTTPError(ErrorGettingBuildDependencyStatus)
+			return ComposeStatus{}, HTTPError(ErrorGettingBuildDependencyStatus)
 		}
 
 		var uploadStatuses *[]UploadStatus
@@ -330,7 +365,7 @@ func (h *apiHandlers) getComposeStatusImpl(ctx echo.Context, id string) error {
 				tr := result.TargetResults[idx]
 				us, err := h.targetResultToUploadStatus(jobId, tr)
 				if err != nil {
-					return HTTPError(ErrorUnknownUploadTarget)
+					return ComposeStatus{}, HTTPError(ErrorUnknownUploadTarget)
 				}
 				us.Status = uploadStatusFromJobStatus(jobInfo.JobStatus, result.JobError)
 				statuses[idx] = *us
@@ -344,7 +379,7 @@ func (h *apiHandlers) getComposeStatusImpl(ctx echo.Context, id string) error {
 			}
 		}
 
-		return ctx.JSON(http.StatusOK, ComposeStatus{
+		return ComposeStatus{
 			ObjectReference: ObjectReference{
 				Href: fmt.Sprintf("/api/image-builder-composer/v2/composes/%v", jobId),
 				Id:   jobId.String(),
@@ -357,20 +392,20 @@ func (h *apiHandlers) getComposeStatusImpl(ctx echo.Context, id string) error {
 				UploadStatus:   us0, // add the first upload status to the old top-level field
 				UploadStatuses: uploadStatuses,
 			},
-		})
+		}, nil
 	} else if jobType == worker.JobTypeKojiFinalize {
 		var result worker.KojiFinalizeJobResult
 		finalizeInfo, err := h.server.workers.KojiFinalizeJobInfo(jobId, &result)
 		if err != nil {
-			return HTTPError(ErrorMalformedOSBuildJobResult)
+			return ComposeStatus{}, HTTPError(ErrorMalformedOSBuildJobResult)
 		}
 		if len(finalizeInfo.Deps) < 2 {
-			return HTTPError(ErrorUnexpectedNumberOfImageBuilds)
+			return ComposeStatus{}, HTTPError(ErrorUnexpectedNumberOfImageBuilds)
 		}
 		var initResult worker.KojiInitJobResult
 		_, err = h.server.workers.KojiInitJobInfo(finalizeInfo.Deps[0], &initResult)
 		if err != nil {
-			return HTTPError(ErrorMalformedOSBuildJobResult)
+			return ComposeStatus{}, HTTPError(ErrorMalformedOSBuildJobResult)
 		}
 		var buildJobResults []worker.OSBuildJobResult
 		var buildJobStatuses []ImageStatus
@@ -378,11 +413,11 @@ func (h *apiHandlers) getComposeStatusImpl(ctx echo.Context, id string) error {
 			var buildJobResult worker.OSBuildJobResult
 			buildInfo, err := h.server.workers.OSBuildJobInfo(finalizeInfo.Deps[i], &buildJobResult)
 			if err != nil {
-				return HTTPError(ErrorMalformedOSBuildJobResult)
+				return ComposeStatus{}, HTTPError(ErrorMalformedOSBuildJobResult)
 			}
 			buildJobError, err := h.server.workers.JobDependencyChainErrors(finalizeInfo.Deps[i])
 			if err != nil {
-				return HTTPError(ErrorGettingBuildDependencyStatus)
+				return ComposeStatus{}, HTTPError(ErrorGettingBuildDependencyStatus)
 			}
 
 			var uploadStatuses *[]UploadStatus
@@ -395,7 +430,7 @@ func (h *apiHandlers) getComposeStatusImpl(ctx echo.Context, id string) error {
 					if tr.Name != target.TargetNameKoji {
 						us, err := h.targetResultToUploadStatus(jobId, tr)
 						if err != nil {
-							return HTTPError(ErrorUnknownUploadTarget)
+							return ComposeStatus{}, HTTPError(ErrorUnknownUploadTarget)
 						}
 						us.Status = uploadStatusFromJobStatus(buildInfo.JobStatus, result.JobError)
 						statuses = append(statuses, *us)
@@ -433,9 +468,9 @@ func (h *apiHandlers) getComposeStatusImpl(ctx echo.Context, id string) error {
 		if buildID != 0 {
 			response.KojiStatus.BuildId = &buildID
 		}
-		return ctx.JSON(http.StatusOK, response)
+		return response, nil
 	} else {
-		return HTTPError(ErrorInvalidJobType)
+		return ComposeStatus{}, HTTPError(ErrorInvalidJobType)
 	}
 }
 
@@ -1443,4 +1478,39 @@ func (h *apiHandlers) PostSearchPackages(ctx echo.Context) error {
 		SearchPackagesResponse{
 			Packages: packageListToPackageDetails(packages),
 		})
+}
+
+// GetDistributionList returns the list of all supported distribution repositories
+// It is arranged by distro name -> architecture -> image type
+func (h *apiHandlers) GetDistributionList(ctx echo.Context) error {
+	distros := make(map[string]map[string]map[string][]rpmmd.RepoConfig)
+	distroNames := h.server.repos.ListDistros()
+	sort.Strings(distroNames)
+	for _, distroName := range distroNames {
+		distro := h.server.distros.GetDistro(distroName)
+		if distro == nil {
+			continue
+		}
+
+		for _, archName := range distro.ListArches() {
+			arch, _ := distro.GetArch(archName)
+			for _, imageType := range arch.ListImageTypes() {
+				repos, err := h.server.repos.ReposByImageTypeName(distroName, archName, imageType)
+				if err != nil {
+					continue
+				}
+
+				if _, ok := distros[distroName]; !ok {
+					distros[distroName] = make(map[string]map[string][]rpmmd.RepoConfig)
+				}
+				if _, ok := distros[distroName][archName]; !ok {
+					distros[distroName][archName] = make(map[string][]rpmmd.RepoConfig)
+				}
+
+				distros[distroName][archName][imageType] = repos
+			}
+		}
+	}
+
+	return ctx.JSON(http.StatusOK, distros)
 }

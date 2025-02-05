@@ -335,6 +335,37 @@ func TestGetErrorList(t *testing.T) {
 	}`, "operation_id", "total", "details")
 }
 
+func TestGetDistributionList(t *testing.T) {
+	srv, _, _, cancel := newV2Server(t, t.TempDir(), false, false)
+	defer cancel()
+
+	test.TestRoute(t, srv.Handler("/api/image-builder-composer/v2"), false, "GET",
+		"/api/image-builder-composer/v2/distributions", ``, http.StatusOK, `
+	{
+		"test-distro-1":{
+			"test_arch":{
+				"test_ostree_type":[
+					{"baseurls":["https://rpmrepo.osbuild.org/v2/mirror/public/f40/f40-x86_64-rawhide-20240101"], "check_gpg":true, "name":"test-distro"}
+				],
+				"test_type":[{"baseurls":["https://rpmrepo.osbuild.org/v2/mirror/public/f40/f40-x86_64-rawhide-20240101"], "check_gpg":true, "name":"test-distro"}]
+			},
+			"test_arch2":{
+				"test_type":[{"baseurls":["https://rpmrepo.osbuild.org/v2/mirror/public/f40/f40-aarch64-rawhide-20240101"], "check_gpg":true, "name":"test-distro"}],
+				"test_type2":[{"baseurls":["https://rpmrepo.osbuild.org/v2/mirror/public/f40/f40-aarch64-rawhide-20240101"], "check_gpg":true, "name":"test-distro"}]},
+			"test_arch3":{
+				"ami":[{"baseurls":["https://rpmrepo.osbuild.org/v2/mirror/public/f40/f40-ppc64le-rawhide-20240101"], "check_gpg":true, "name":"test-distro"}],
+				"gce":[{"baseurls":["https://rpmrepo.osbuild.org/v2/mirror/public/f40/f40-ppc64le-rawhide-20240101"], "check_gpg":true, "name":"test-distro"}],
+				"image-installer":[{"baseurls":["https://rpmrepo.osbuild.org/v2/mirror/public/f40/f40-ppc64le-rawhide-20240101"], "check_gpg":true, "name":"test-distro"}],
+				"qcow2":[{"baseurls":["https://rpmrepo.osbuild.org/v2/mirror/public/f40/f40-ppc64le-rawhide-20240101"], "check_gpg":true, "name":"test-distro"}],
+				"rhel-edge-commit":[{"baseurls":["https://rpmrepo.osbuild.org/v2/mirror/public/f40/f40-ppc64le-rawhide-20240101"], "check_gpg":true, "name":"test-distro"}],
+				"rhel-edge-installer":[{"baseurls":["https://rpmrepo.osbuild.org/v2/mirror/public/f40/f40-ppc64le-rawhide-20240101"], "check_gpg":true, "name":"test-distro"}],
+				"vhd":[{"baseurls":["https://rpmrepo.osbuild.org/v2/mirror/public/f40/f40-ppc64le-rawhide-20240101"], "check_gpg":true, "name":"test-distro"}],
+				"vmdk":[{"baseurls":["https://rpmrepo.osbuild.org/v2/mirror/public/f40/f40-ppc64le-rawhide-20240101"], "check_gpg":true, "name":"test-distro"}]
+			}
+		}
+	}`, "gpgkeys", "baseurl")
+}
+
 func TestCompose(t *testing.T) {
 	srv, _, _, cancel := newV2Server(t, t.TempDir(), false, false)
 	defer cancel()
@@ -1833,4 +1864,44 @@ func TestSearchArchErrors(t *testing.T) {
 			"code": "IMAGE-BUILDER-COMPOSER-30",
 			"reason": "Request could not be validated"
 		}`, "operation_id", "details")
+}
+
+func TestComposesRoute(t *testing.T) {
+	srv, _, _, cancel := newV2Server(t, t.TempDir(), false, false)
+	defer cancel()
+
+	// Make a compose so it has something to list
+	reply := test.TestRouteWithReply(t, srv.Handler("/api/image-builder-composer/v2"), false, "POST", "/api/image-builder-composer/v2/compose", fmt.Sprintf(`
+	{
+		"distribution": "%s",
+		"image_request":{
+			"architecture": "%s",
+			"image_type": "%s",
+			"repositories": [{
+				"baseurl": "somerepo.org",
+				"rhsm": false
+			}],
+			"upload_options": {
+				"region": "eu-central-1",
+				"snapshot_name": "name",
+				"share_with_accounts": ["123456789012","234567890123"]
+			}
+		}
+	}`, test_distro.TestDistro1Name, test_distro.TestArch3Name, string(v2.ImageTypesAws)), http.StatusCreated, `
+	{
+		"href": "/api/image-builder-composer/v2/compose",
+		"kind": "ComposeId"
+	}`, "id")
+
+	// Extract the compose ID to use to test the list response
+	var composeReply v2.ComposeId
+	err := json.Unmarshal(reply, &composeReply)
+	require.NoError(t, err)
+	jobID, err := uuid.Parse(composeReply.Id)
+	require.NoError(t, err)
+
+	// List root composes
+	test.TestRoute(t, srv.Handler("/api/image-builder-composer/v2"), false, "GET", "/api/image-builder-composer/v2/composes/", ``,
+		http.StatusOK, fmt.Sprintf(`[{"href":"/api/image-builder-composer/v2/composes/%[1]s", "id":"%[1]s", "image_status":{"status":"pending"}, "kind":"ComposeStatus", "status":"pending"}]`,
+			jobID.String()))
 }
