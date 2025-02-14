@@ -11,6 +11,7 @@ import (
 	"github.com/coreos/go-systemd/journal"
 	"github.com/getsentry/sentry-go"
 	sentrylogrus "github.com/getsentry/sentry-go/logrus"
+	_ "github.com/osbuild/images/data/repositories"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	slogger "github.com/ondrejbudai/osbuild-composer-public/pkg/splunk_logger"
 	"github.com/sirupsen/logrus"
