@@ -1,21 +1,27 @@
 #!/bin/sh
 
-set -eux
+set -eu
 
-GO_VERSION=1.22.6
-GO_BINARY=$(go env GOPATH)/bin/go$GO_VERSION
+GO_MINOR_VERSION="1.22"
+GO_VERSION="${GO_MINOR_VERSION}.6"
 
-# this is the official way to get a different version of golang
-# see https://go.dev/doc/manage-install
-go install golang.org/dl/go$GO_VERSION@latest
-$GO_BINARY download
+# Check latest Go version for the minor we're using
+LATEST=$(curl -s https://endoflife.date/api/go/"${GO_MINOR_VERSION}".json  | jq -r .latest)
+if test "$LATEST" != "$GO_VERSION"; then
+    echo "NOTE: A new minor release is available (${LATEST}), consider bumping the project version (${GO_VERSION})"
+fi
 
-# ensure that go.mod and go.sum are up to date, ...
-$GO_BINARY mod tidy
-$GO_BINARY mod vendor
+set -x
 
-# ... and all code has been regenerated from its sources.
-$GO_BINARY generate ./...
+# Pin Go and toolbox versions
+go get "go@${GO_VERSION}" "toolchain@${GO_VERSION}"
 
-# ... the code is formatted correctly, ...
-$GO_BINARY fmt ./...
+# Update go.mod and go.sum:
+go mod tidy
+go mod vendor
+
+# Generate all sources (skip vendor/):
+go generate ./cmd/... ./internal/... ./pkg/...
+
+# Format all sources (skip vendor/):
+go fmt ./cmd/... ./internal/... ./pkg/...
