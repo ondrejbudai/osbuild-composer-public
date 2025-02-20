@@ -103,8 +103,12 @@ else
     echo "All installed distros are recognized by composer."
 fi
 
-# set path to all "images" repositories
-git clone --depth 1 http://github.com/osbuild/images
+# set path to all "images" repositories, do not use "main" here but the
+# last release version (this assume 200 commits since the last tag)
+git clone --depth 200 http://github.com/osbuild/images
+( cd images &&
+      git checkout "$(git describe --tags "$(git rev-list --tags --max-count=1)")"
+)
 REPO_PATH="images/data/repositories/"
 
 # ALL_DISTROS - all possible distros from upstream repository
@@ -124,6 +128,8 @@ echo "DEBUG: ===== ALL_DISTROS ===="
 echo "$ALL_DISTROS"
 echo "DEBUG: ===== ALL_EXPECTED_DISTROS ===="
 echo "$ALL_EXPECTED_DISTROS"
+echo "DEBUG: ===== INSTALLED_DISTROS ===="
+echo "$INSTALLED_DISTROS"
 echo "DEBUG: ===== ALL_REMAINDERS ===="
 echo "$ALL_REMAINDERS"
 echo "DEBUG: ===== END ===="
