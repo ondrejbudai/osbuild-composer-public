@@ -1,11 +1,13 @@
 package v2
 
 import (
+	"fmt"
 	"io/fs"
 	"testing"
 
 	repos "github.com/osbuild/images/data/repositories"
 	"github.com/osbuild/images/pkg/customizations/subscription"
+	"github.com/osbuild/images/pkg/datasizes"
 	"github.com/osbuild/images/pkg/disk"
 	"github.com/osbuild/images/pkg/distrofactory"
 	"github.com/osbuild/images/pkg/reporegistry"
@@ -177,6 +179,60 @@ func GetTestBlueprint() blueprint.Blueprint {
 				},
 			},
 		},
+		Disk: &blueprint.DiskCustomization{
+			MinSize: 20 * datasizes.GiB,
+			Partitions: []blueprint.PartitionCustomization{
+				{
+					Type: "plain",
+					FilesystemTypedCustomization: blueprint.FilesystemTypedCustomization{
+						FSType:     "xfs",
+						Label:      "data",
+						Mountpoint: "/data",
+					},
+				},
+				{
+					Type:    "btrfs",
+					MinSize: 100 * datasizes.MiB,
+					BtrfsVolumeCustomization: blueprint.BtrfsVolumeCustomization{
+						Subvolumes: []blueprint.BtrfsSubvolumeCustomization{
+							{
+								Name:       "+subvols/db1",
+								Mountpoint: "/data/db1",
+							},
+							{
+								Name:       "+subvols/db2",
+								Mountpoint: "/data/db2",
+							},
+						},
+					},
+				},
+				{
+					Type:     "lvm",
+					MinSize:  10 * datasizes.GiB,
+					PartType: "E6D6D379-F507-44C2-A23C-238F2A3DF928",
+					VGCustomization: blueprint.VGCustomization{
+						Name: "vg000001",
+						LogicalVolumes: []blueprint.LVCustomization{
+							{
+								Name: "rootlv",
+								FilesystemTypedCustomization: blueprint.FilesystemTypedCustomization{
+									Mountpoint: "/",
+									FSType:     "ext4",
+								},
+							},
+							{
+								Name:    "homelv",
+								MinSize: 3 * datasizes.GiB,
+								FilesystemTypedCustomization: blueprint.FilesystemTypedCustomization{
+									Mountpoint: "/home",
+									Label:      "home",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	return expected
@@ -209,6 +265,71 @@ func TestGetBlueprintFromCustomizations(t *testing.T) {
 	require.NoError(t, fileUser.FromFileUser0("root"))
 	var fileGroup File_Group
 	require.NoError(t, fileGroup.FromFileGroup0("root"))
+
+	var plainPart Partition
+	require.NoError(t, plainPart.FromFilesystemTyped(
+		FilesystemTyped{
+			Type:       common.ToPtr(Plain),
+			Minsize:    nil,
+			FsType:     common.ToPtr(FilesystemTypedFsTypeXfs),
+			Label:      common.ToPtr("data"),
+			Mountpoint: "/data",
+		},
+	))
+
+	var btrfsSize Minsize
+	require.NoError(t, btrfsSize.FromMinsize0(100*datasizes.MiB))
+
+	var btrfsPart Partition
+	require.NoError(t, btrfsPart.FromBtrfsVolume(
+		BtrfsVolume{
+			Type:    common.ToPtr(Btrfs),
+			Minsize: &btrfsSize,
+			Subvolumes: []BtrfsSubvolume{
+				{
+					Mountpoint: "/data/db1",
+					Name:       "+subvols/db1",
+				},
+				{
+					Mountpoint: "/data/db2",
+					Name:       "+subvols/db2",
+				},
+			},
+		},
+	))
+
+	var vgSize, lvSize Minsize
+	require.NoError(t, vgSize.FromMinsize0(10*datasizes.GiB))
+	require.NoError(t, lvSize.FromMinsize0(3*datasizes.GiB))
+
+	var vgPart Partition
+	require.NoError(t, vgPart.FromVolumeGroup(
+		VolumeGroup{
+			Type:     common.ToPtr(Lvm),
+			Name:     common.ToPtr("vg000001"),
+			Minsize:  &vgSize,
+			PartType: common.ToPtr("E6D6D379-F507-44C2-A23C-238F2A3DF928"),
+			LogicalVolumes: []LogicalVolume{
+				{
+					FsType:     common.ToPtr(LogicalVolumeFsTypeExt4),
+					Label:      nil,
+					Minsize:    nil,
+					Mountpoint: "/",
+					Name:       common.ToPtr("rootlv"),
+				},
+				{
+					FsType:     nil,
+					Label:      common.ToPtr("home"),
+					Minsize:    &lvSize,
+					Mountpoint: "/home",
+					Name:       common.ToPtr("homelv"),
+				},
+			},
+		},
+	))
+
+	var diskSize Minsize
+	require.NoError(t, diskSize.FromMinsize1("20 GiB"))
 
 	// Construct the compose request with customizations
 	cr = ComposeRequest{Customizations: &Customizations{
@@ -340,6 +461,14 @@ func TestGetBlueprintFromCustomizations(t *testing.T) {
 				},
 			},
 		},
+		Disk: &Disk{
+			Minsize: &diskSize,
+			Partitions: []Partition{
+				plainPart,
+				btrfsPart,
+				vgPart,
+			},
+		},
 	}}
 
 	bp, err = cr.GetBlueprintFromCustomizations()
@@ -394,6 +523,74 @@ func TestGetBlueprintFromCompose(t *testing.T) {
 	var fileGroup BlueprintFile_Group
 	require.NoError(t, fileGroup.FromBlueprintFileGroup0("root"))
 
+	var plainPart Partition
+	require.NoError(t, plainPart.FromFilesystemTyped(
+		FilesystemTyped{
+			Type:       common.ToPtr(Plain),
+			Minsize:    nil,
+			FsType:     common.ToPtr(FilesystemTypedFsTypeXfs),
+			Label:      common.ToPtr("data"),
+			Mountpoint: "/data",
+		},
+	))
+
+	var btrfsSize Minsize
+	require.NoError(t, btrfsSize.FromMinsize0(100*datasizes.MiB))
+
+	var btrfsPart Partition
+	require.NoError(t, btrfsPart.FromBtrfsVolume(
+		BtrfsVolume{
+			Type:    common.ToPtr(Btrfs),
+			Minsize: &btrfsSize,
+			Subvolumes: []BtrfsSubvolume{
+				{
+					Mountpoint: "/data/db1",
+					Name:       "+subvols/db1",
+				},
+				{
+					Mountpoint: "/data/db2",
+					Name:       "+subvols/db2",
+				},
+			},
+		},
+	))
+
+	var vgSize, lvSize Minsize
+	require.NoError(t, vgSize.FromMinsize0(10*datasizes.GiB))
+	require.NoError(t, lvSize.FromMinsize0(3*datasizes.GiB))
+
+	var vgPart Partition
+	require.NoError(t, vgPart.FromVolumeGroup(
+		VolumeGroup{
+			Type:     common.ToPtr(Lvm),
+			Minsize:  &vgSize,
+			Name:     common.ToPtr("vg000001"),
+			PartType: common.ToPtr("E6D6D379-F507-44C2-A23C-238F2A3DF928"),
+			LogicalVolumes: []LogicalVolume{
+				{
+					FsType:     common.ToPtr(LogicalVolumeFsTypeExt4),
+					Label:      nil,
+					Minsize:    nil,
+					Mountpoint: "/",
+					Name:       common.ToPtr("rootlv"),
+				},
+				{
+					FsType:     nil,
+					Label:      common.ToPtr("home"),
+					Minsize:    &lvSize,
+					Mountpoint: "/home",
+					Name:       common.ToPtr("homelv"),
+				},
+			},
+		},
+	))
+
+	var fsSize Minsize
+	require.NoError(t, fsSize.FromMinsize0(1099511627776))
+
+	var diskSize Minsize
+	require.NoError(t, diskSize.FromMinsize1("20 GiB"))
+
 	// Construct the compose request with a blueprint
 	cr = ComposeRequest{Blueprint: &Blueprint{
 		Name:     "empty blueprint",
@@ -440,7 +637,7 @@ func TestGetBlueprintFromCompose(t *testing.T) {
 			Filesystem: &[]BlueprintFilesystem{
 				{
 					Mountpoint: "/var/lib/wopr/",
-					Minsize:    1099511627776,
+					Minsize:    fsSize,
 				},
 			},
 			Services: &Services{
@@ -524,6 +721,14 @@ func TestGetBlueprintFromCompose(t *testing.T) {
 							AutoRegistration: common.ToPtr(false),
 						},
 					},
+				},
+			},
+			Disk: &Disk{
+				Minsize: &diskSize,
+				Partitions: []Partition{
+					plainPart,
+					btrfsPart,
+					vgPart,
 				},
 			},
 		},
@@ -949,4 +1154,73 @@ func TestOpenSCAPTailoringOptions(t *testing.T) {
 
 	bp, err = cr.GetBlueprintFromCustomizations()
 	assert.Error(t, err)
+}
+
+func TestDecodeMinsize(t *testing.T) {
+	type testCase struct {
+		in           *Minsize
+		expOut       uint64
+		expErrSubstr string
+	}
+
+	msStr := func(s string) *Minsize {
+		var ms Minsize
+		if err := ms.FromMinsize1(s); err != nil {
+			panic(err)
+		}
+		return &ms
+	}
+
+	msInt := func(i uint64) *Minsize {
+		var ms Minsize
+		if err := ms.FromMinsize0(i); err != nil {
+			panic(err)
+		}
+		return &ms
+	}
+
+	testCases := []testCase{
+		{
+			in:     nil,
+			expOut: 0,
+		},
+		{
+			in:     msInt(10),
+			expOut: 10,
+		},
+		{
+			in:     msInt(41 * datasizes.MiB),
+			expOut: 41 * datasizes.MiB,
+		},
+		{
+			in:     msStr("10"),
+			expOut: 10,
+		},
+		{
+			in:     msStr("32 GiB"),
+			expOut: 32 * datasizes.GiB,
+		},
+
+		{
+			in:           msStr("not a number"),
+			expErrSubstr: "the size string doesn't contain any number: not a number",
+		},
+		{
+			in:           msStr("10 GiBi"),
+			expErrSubstr: "unknown data size units in string: 10 GiBi",
+		},
+	}
+
+	for idx, tc := range testCases {
+		t.Run(fmt.Sprintf("case-%02d", idx), func(t *testing.T) {
+			assert := assert.New(t)
+			out, err := decodeMinsize(tc.in)
+			if tc.expErrSubstr != "" {
+				assert.ErrorContains(err, tc.expErrSubstr)
+			} else {
+				assert.NoError(err)
+			}
+			assert.Equal(tc.expOut, out)
+		})
+	}
 }
