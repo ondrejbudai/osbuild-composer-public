@@ -5,11 +5,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/osbuild/blueprint/pkg/blueprint"
 	"github.com/osbuild/images/pkg/distro"
 	"github.com/osbuild/images/pkg/distro/test_distro"
 	"github.com/osbuild/images/pkg/distrofactory"
 	"github.com/osbuild/images/pkg/rpmmd"
-	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 )

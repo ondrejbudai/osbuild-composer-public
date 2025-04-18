@@ -31,6 +31,7 @@ import (
 	"github.com/julienschmidt/httprouter"
 	"github.com/ondrejbudai/osbuild-composer-public/pkg/jobqueue"
 
+	"github.com/osbuild/blueprint/pkg/blueprint"
 	"github.com/osbuild/images/pkg/arch"
 	"github.com/osbuild/images/pkg/container"
 	"github.com/osbuild/images/pkg/distro"
@@ -43,7 +44,6 @@ import (
 	"github.com/osbuild/images/pkg/rhsm/facts"
 	"github.com/osbuild/images/pkg/rpmmd"
 	"github.com/osbuild/images/pkg/sbom"
-	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/store"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"

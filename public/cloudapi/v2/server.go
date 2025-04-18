@@ -22,6 +22,7 @@ import (
 
 	"github.com/ondrejbudai/osbuild-composer-public/pkg/jobqueue"
 
+	"github.com/osbuild/blueprint/pkg/blueprint"
 	"github.com/osbuild/images/pkg/container"
 	"github.com/osbuild/images/pkg/distrofactory"
 	"github.com/osbuild/images/pkg/dnfjson"
@@ -30,7 +31,6 @@ import (
 	"github.com/osbuild/images/pkg/reporegistry"
 	"github.com/osbuild/images/pkg/sbom"
 	"github.com/ondrejbudai/osbuild-composer-public/public/auth"
-	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/prometheus"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"

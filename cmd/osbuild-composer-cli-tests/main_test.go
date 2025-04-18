@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
+	"github.com/osbuild/blueprint/pkg/blueprint"
 	"github.com/ondrejbudai/osbuild-composer-public/public/weldr"
 )
 

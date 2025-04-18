@@ -22,8 +22,8 @@ import (
 	"github.com/osbuild/images/pkg/manifest"
 	"github.com/ondrejbudai/osbuild-composer-public/public/jsondb"
 
+	"github.com/osbuild/blueprint/pkg/blueprint"
 	"github.com/osbuild/images/pkg/rpmmd"
-	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 

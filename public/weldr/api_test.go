@@ -18,6 +18,7 @@ import (
 	"time"
 
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/osbuild/blueprint/pkg/blueprint"
 	"github.com/osbuild/images/pkg/container"
 	"github.com/osbuild/images/pkg/distro"
 	"github.com/osbuild/images/pkg/distro/test_distro"
@@ -27,7 +28,6 @@ import (
 	"github.com/osbuild/images/pkg/ostree/mock_ostree_repo"
 	"github.com/osbuild/images/pkg/reporegistry"
 	"github.com/osbuild/images/pkg/rpmmd"
-	"github.com/ondrejbudai/osbuild-composer-public/public/blueprint"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	dnfjson_mock "github.com/ondrejbudai/osbuild-composer-public/public/mocks/dnfjson"
 	rpmmd_mock "github.com/ondrejbudai/osbuild-composer-public/public/mocks/rpmmd"
