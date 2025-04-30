@@ -370,6 +370,7 @@ type BlueprintFile_User struct {
 
 // BlueprintFilesystem defines model for BlueprintFilesystem.
 type BlueprintFilesystem struct {
+	// Minsize size with data units
 	Minsize    Minsize `json:"minsize"`
 	Mountpoint string  `json:"mountpoint"`
 }
@@ -455,6 +456,7 @@ type BtrfsSubvolume struct {
 
 // BtrfsVolume defines model for BtrfsVolume.
 type BtrfsVolume struct {
+	// Minsize size with data units
 	Minsize *Minsize `json:"minsize,omitempty"`
 
 	// PartType The partition type GUID for GPT partitions. For DOS partitions, this field can be used to set the (2 hex digit) partition type. If not set, the type will be automatically set based on the mountpoint or the payload type.
@@ -766,6 +768,7 @@ type Directory_User struct {
 
 // Disk defines model for Disk.
 type Disk struct {
+	// Minsize size with data units
 	Minsize    *Minsize    `json:"minsize,omitempty"`
 	Partitions []Partition `json:"partitions"`
 
@@ -867,10 +870,12 @@ type Filesystem struct {
 // FilesystemTyped defines model for FilesystemTyped.
 type FilesystemTyped struct {
 	// FsType The filesystem type
-	FsType     *FilesystemTypedFsType `json:"fs_type,omitempty"`
-	Label      *string                `json:"label,omitempty"`
-	Minsize    *Minsize               `json:"minsize,omitempty"`
-	Mountpoint string                 `json:"mountpoint"`
+	FsType *FilesystemTypedFsType `json:"fs_type,omitempty"`
+	Label  *string                `json:"label,omitempty"`
+
+	// Minsize size with data units
+	Minsize    *Minsize `json:"minsize,omitempty"`
+	Mountpoint string   `json:"mountpoint"`
 
 	// PartType The partition type GUID for GPT partitions. For DOS partitions, this field can be used to set the (2 hex digit) partition type. If not set, the type will be automatically set based on the mountpoint or the payload type.
 	PartType *string              `json:"part_type,omitempty"`
@@ -1114,9 +1119,11 @@ type Locale struct {
 // LogicalVolume defines model for LogicalVolume.
 type LogicalVolume struct {
 	// FsType The filesystem type for the logical volume
-	FsType  *LogicalVolumeFsType `json:"fs_type,omitempty"`
-	Label   *string              `json:"label,omitempty"`
-	Minsize *Minsize             `json:"minsize,omitempty"`
+	FsType *LogicalVolumeFsType `json:"fs_type,omitempty"`
+	Label  *string              `json:"label,omitempty"`
+
+	// Minsize size with data units
+	Minsize *Minsize `json:"minsize,omitempty"`
 
 	// Mountpoint Mountpoint for the logical volume
 	Mountpoint string  `json:"mountpoint"`
@@ -1372,7 +1379,8 @@ type SubManRHSMCertdConfig struct {
 
 // SubManRHSMConfig defines model for SubManRHSMConfig.
 type SubManRHSMConfig struct {
-	ManageRepos *bool `json:"manage_repos,omitempty"`
+	AutoEnableYumPlugins *bool `json:"auto_enable_yum_plugins,omitempty"`
+	ManageRepos          *bool `json:"manage_repos,omitempty"`
 }
 
 // Subscription defines model for Subscription.
@@ -1455,7 +1463,9 @@ type User struct {
 // VolumeGroup defines model for VolumeGroup.
 type VolumeGroup struct {
 	LogicalVolumes []LogicalVolume `json:"logical_volumes"`
-	Minsize        *Minsize        `json:"minsize,omitempty"`
+
+	// Minsize size with data units
+	Minsize *Minsize `json:"minsize,omitempty"`
 
 	// Name Volume group name (will be automatically generated if omitted)
 	Name *string `json:"name,omitempty"`
@@ -1468,16 +1478,8 @@ type VolumeGroup struct {
 // VolumeGroupType defines model for VolumeGroup.Type.
 type VolumeGroupType string
 
-// Minsize defines model for minsize.
-type Minsize struct {
-	union json.RawMessage
-}
-
-// Minsize0 size in bytes
-type Minsize0 = uint64
-
-// Minsize1 size with data units
-type Minsize1 = string
+// Minsize size with data units
+type Minsize = string
 
 // Page defines model for page.
 type Page = string
@@ -2656,68 +2658,6 @@ func (t *UploadStatus_Options) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// AsMinsize0 returns the union data inside the Minsize as a Minsize0
-func (t Minsize) AsMinsize0() (Minsize0, error) {
-	var body Minsize0
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromMinsize0 overwrites any union data inside the Minsize as the provided Minsize0
-func (t *Minsize) FromMinsize0(v Minsize0) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeMinsize0 performs a merge with any union data inside the Minsize, using the provided Minsize0
-func (t *Minsize) MergeMinsize0(v Minsize0) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsMinsize1 returns the union data inside the Minsize as a Minsize1
-func (t Minsize) AsMinsize1() (Minsize1, error) {
-	var body Minsize1
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromMinsize1 overwrites any union data inside the Minsize as the provided Minsize1
-func (t *Minsize) FromMinsize1(v Minsize1) error {
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeMinsize1 performs a merge with any union data inside the Minsize, using the provided Minsize1
-func (t *Minsize) MergeMinsize1(v Minsize1) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t Minsize) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *Minsize) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// The status of a cloned compose
@@ -3239,49 +3179,49 @@ var swaggerSpec = []string{
 	"oVCJkJJ5jTOLz+RPrGawX1y5NUbC6sKts3u7eflWfZGgnhLXeMVEC2nJ/Ortp/2Lww3ruEaXEz9UwHXt",
 	"+iQ/oc4I6E4Sb5BbHs6Jnhpw7QcoaekupZ9SgGQlNKSnQrP5xsD4kA/XhUW2XQmJLsmyKVasR0PSXTbv",
 	"KFyjiLceIekL02ehg5hwN+gsmy/zpi1wE87zHKNuGOcFL30PZKZs9nd6HOeGWQz97ELnr1tCQZ/NY1lw",
-	"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",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
