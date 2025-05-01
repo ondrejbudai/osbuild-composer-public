@@ -86,7 +86,7 @@ fi
 
 # Get a list of all installed distros and compare it with a pattern matching host distribution
 # Filter out beta and centos-stream, see GH issue #2257
-INSTALLED_DISTROS=$(find "/usr/share/osbuild-composer/repositories" -name '*.json' -printf '%P\n' | awk -F "." '{ print $1 }' | grep -Ev 'beta|stream' | sort)
+INSTALLED_DISTROS=$(find "/usr/share/osbuild-composer/repositories" -name '*.json' -printf '%P\n' | sed 's/\.[^.]*$//' | grep -Ev 'beta|stream' | sort)
 INSTALLED_REMAINDER=$(echo "$INSTALLED_DISTROS" | grep -v -E "$PATTERN")
 # Check if there are any extra distros that match the host pattern but are not recognized
 UNRECOGNIZED_DISTROS=$(echo "${INSTALLED_DISTROS}" | grep -v "${RECOGNIZED_DISTROS}")
@@ -99,19 +99,26 @@ else
     echo "All installed distros are recognized by composer."
 fi
 
-# set path to all "images" repositories, do not use "main" here but the
-# last release version (this assume 200 commits since the last tag)
-git clone --depth 200 http://github.com/osbuild/images
-( cd images &&
-      git checkout "$(git describe --tags "$(git rev-list --tags --max-count=1)")"
-)
+# determine the 'osbuild/images' repository version used by the osbuild-composer
+sudo dnf install -y golang
+COMPOSER_DEPS=$(go version -m /usr/libexec/osbuild-composer/osbuild-composer)
+IMAGES_VERSION=$(echo "$COMPOSER_DEPS" | sed -n 's|^\t\+dep\t\+github\.com/osbuild/images\t\+\(v[0-9.]\+\)\t\+$|\1|p')
+if [ -z "$IMAGES_VERSION" ]; then
+    echo "ERROR: Unable to determine osbuild/images version from osbuild-composer binary. Composer deps:"
+    echo "$COMPOSER_DEPS"
+    exit 1
+fi
+
+greenprint "INFO: Using osbuild/images version to check repo configs: $IMAGES_VERSION"
+git clone http://github.com/osbuild/images
+( cd images && git checkout "$IMAGES_VERSION" )
 REPO_PATH="images/data/repositories/"
 
 # ALL_DISTROS - all possible distros from upstream repository
 # ALL_EXPECTED_DISTROS - all distros matching host pattern
 # ALL_REMAINDERS - all the unrecognized distros
 # Filter out beta and centos-stream, see GH issue #2257
-ALL_DISTROS=$(find "$REPO_PATH" -name '*.json' -printf '%P\n' | grep -v 'no-aux-key' | awk -F "." '{ print $1 }')
+ALL_DISTROS=$(find "$REPO_PATH" -name '*.json' -printf '%P\n' | grep -v 'no-aux-key' | sed 's/\.[^.]*$//')
 ALL_EXPECTED_DISTROS=$(echo "$ALL_DISTROS" | grep -E "$PATTERN" | grep -Ev 'beta|stream' | sort)
 # Warning: filter out the remaining distros by matching whole words to avoid matching
 # the value rhel-9X by the pattern rhel-9!
