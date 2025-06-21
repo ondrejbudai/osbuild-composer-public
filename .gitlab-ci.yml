@@ -109,10 +109,10 @@ RPM:
   parallel:
     matrix:
       - RUNNER:
-          - aws/fedora-40-x86_64
-          - aws/fedora-40-aarch64
           - aws/fedora-41-x86_64
           - aws/fedora-41-aarch64
+          - aws/fedora-42-x86_64
+          - aws/fedora-42-aarch64
           - aws/rhel-8.10-ga-x86_64
           - aws/rhel-8.10-ga-aarch64
           - aws/rhel-9.5-ga-x86_64
@@ -332,15 +332,18 @@ Image Tests:
           - aws/rhel-10.1-nightly-aarch64
         INTERNAL_NETWORK: ["true"]
 
-Trigger-rhel-edge-ci:
-  rules:
-    - if: '$CI_PIPELINE_SOURCE != "schedule"'
-  stage: test
-  interruptible: true
-  tags:
-    - shell
-  script:
-    - 'curl -u "${SCHUTZBOT_LOGIN}" -X POST -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/osbuild/rhel-edge-ci/dispatches -d "{\"event_type\":\"osbuild-composer-ci\",\"client_payload\":{\"pr_number\":\"${CI_COMMIT_BRANCH}\"}}"'
+# NB (thozza): The rhel-edge-ci job is currently disabled because the tests have been consistently failing for a while.
+# The tests need to be investigated and fixed before re-enabling the job.
+# See https://issues.redhat.com/browse/HMS-8719
+# Trigger-rhel-edge-ci:
+#   rules:
+#     - if: '$CI_PIPELINE_SOURCE != "schedule"'
+#   stage: test
+#   interruptible: true
+#   tags:
+#     - shell
+#   script:
+#     - 'curl -u "${SCHUTZBOT_LOGIN}" -X POST -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/osbuild/rhel-edge-ci/dispatches -d "{\"event_type\":\"osbuild-composer-ci\",\"client_payload\":{\"pr_number\":\"${CI_COMMIT_BRANCH}\"}}"'
 
 .integration_base:
   stage: test
@@ -524,7 +527,7 @@ filesystem.sh:
     matrix:
       - CUSTOMIZATION_TYPE: "disk-btrfs"
         RUNNER:
-          - aws/fedora-40-x86_64
+          - aws/fedora-42-x86_64
       - CUSTOMIZATION_TYPE: "filesystem"
         RUNNER:
           - aws/rhel-8.10-ga-x86_64
@@ -645,7 +648,7 @@ API-module-hotfixes:
   parallel:
     matrix:
       - RUNNER:
-          - rhos-01/fedora-40-x86_64
+          - rhos-01/fedora-42-x86_64
       - RUNNER:
           - gcp/rhel-8.10-ga-x86_64
           - gcp/rhel-9.5-ga-x86_64
@@ -831,8 +834,11 @@ Installer:
       - RUNNER:
           - rhos-01/rhel-9.7-nightly-x86_64
           - rhos-01/centos-stream-9-x86_64
-          - rhos-01/rhel-10.1-nightly-x86_64
-          - rhos-01/centos-stream-10-x86_64
+          # NB (thozza): The test is disabled for RHEL 10.1 due to https://issues.redhat.com/browse/RHEL-96222
+          # Re-enable it once kernel-6.12.0-97.el10 lands in the repositories.
+          # See https://issues.redhat.com/browse/HMS-8718
+          # - rhos-01/rhel-10.1-nightly-x86_64
+          # - rhos-01/centos-stream-10-x86_64
 
 ContainerUpload:
   stage: test
