@@ -8,8 +8,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/osbuild/images/pkg/osbuild"
-	"github.com/osbuild/images/pkg/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/koji"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"
@@ -37,8 +35,8 @@ func (impl *KojiFinalizeJobImpl) kojiImport(
 		return fmt.Errorf("Koji server has not been configured: %s", serverURL.Hostname())
 	}
 
-	transport := koji.CreateKojiTransport(kojiServer.relaxTimeoutFactor)
-	k, err := koji.NewFromGSSAPI(server, &kojiServer.creds, transport)
+	transport := koji.CreateKojiTransport(kojiServer.relaxTimeoutFactor, NewRHLeveledLogger(nil))
+	k, err := koji.NewFromGSSAPI(server, &kojiServer.creds, transport, NewRHLeveledLogger(nil))
 	if err != nil {
 		return err
 	}
@@ -69,8 +67,8 @@ func (impl *KojiFinalizeJobImpl) kojiFail(server string, buildID int, token stri
 		return fmt.Errorf("Koji server has not been configured: %s", serverURL.Hostname())
 	}
 
-	transport := koji.CreateKojiTransport(kojiServer.relaxTimeoutFactor)
-	k, err := koji.NewFromGSSAPI(server, &kojiServer.creds, transport)
+	transport := koji.CreateKojiTransport(kojiServer.relaxTimeoutFactor, NewRHLeveledLogger(nil))
+	k, err := koji.NewFromGSSAPI(server, &kojiServer.creds, transport, NewRHLeveledLogger(nil))
 	if err != nil {
 		return err
 	}
@@ -143,16 +141,16 @@ func (impl *KojiFinalizeJobImpl) Run(job worker.Job) error {
 	}
 
 	for i, buildResult := range osbuildResults {
-		buildRPMs := make([]rpmmd.RPM, 0)
+		buildRPMs := make([]koji.RPM, 0)
 		// collect packages from stages in build pipelines
 		for _, plName := range buildResult.PipelineNames.Build {
 			buildPipelineMd := buildResult.OSBuildOutput.Metadata[plName]
-			buildRPMs = append(buildRPMs, osbuild.OSBuildMetadataToRPMs(buildPipelineMd)...)
+			buildRPMs = append(buildRPMs, koji.OSBuildMetadataToRPMs(buildPipelineMd)...)
 		}
 		// this dedupe is usually not necessary since we generally only have
 		// one rpm stage in one build pipeline, but it's not invalid to have
 		// multiple
-		buildRPMs = rpmmd.DeduplicateRPMs(buildRPMs)
+		buildRPMs = koji.DeduplicateRPMs(buildRPMs)
 
 		kojiTargetResults := buildResult.TargetResultsByName(target.TargetNameKoji)
 		// Only a single Koji target is allowed per osbuild job
@@ -162,6 +160,14 @@ func (impl *KojiFinalizeJobImpl) Run(job worker.Job) error {
 		}
 
 		kojiTargetResult := kojiTargetResults[0]
+		var kojiTargetOSBuildArtifact *koji.OsbuildArtifact
+		if kojiTargetResult.OsbuildArtifact != nil {
+			kojiTargetOSBuildArtifact = &koji.OsbuildArtifact{
+				ExportFilename: kojiTargetResult.OsbuildArtifact.ExportFilename,
+				ExportName:     kojiTargetResult.OsbuildArtifact.ExportName,
+			}
+		}
+
 		kojiTargetOptions := kojiTargetResult.Options.(*target.KojiTargetResultOptions)
 
 		buildRoots = append(buildRoots, koji.BuildRoot{
@@ -183,19 +189,19 @@ func (impl *KojiFinalizeJobImpl) Run(job worker.Job) error {
 		})
 
 		// collect packages from stages in payload pipelines
-		imageRPMs := make([]rpmmd.RPM, 0)
+		imageRPMs := make([]koji.RPM, 0)
 		for _, plName := range buildResult.PipelineNames.Payload {
 			payloadPipelineMd := buildResult.OSBuildOutput.Metadata[plName]
-			imageRPMs = append(imageRPMs, osbuild.OSBuildMetadataToRPMs(payloadPipelineMd)...)
+			imageRPMs = append(imageRPMs, koji.OSBuildMetadataToRPMs(payloadPipelineMd)...)
 		}
 
 		// deduplicate
-		imageRPMs = rpmmd.DeduplicateRPMs(imageRPMs)
+		imageRPMs = koji.DeduplicateRPMs(imageRPMs)
 
 		imgOutputExtraInfo := koji.ImageExtraInfo{
 			Arch:            buildResult.Arch,
 			BootMode:        buildResult.ImageBootMode,
-			OSBuildArtifact: kojiTargetResult.OsbuildArtifact,
+			OSBuildArtifact: kojiTargetOSBuildArtifact,
 			OSBuildVersion:  buildResult.OSBuildVersion,
 		}
 
@@ -210,8 +216,8 @@ func (impl *KojiFinalizeJobImpl) Run(job worker.Job) error {
 		// If there are any non-Koji target results in the build,
 		// add them to the image output extra metadata.
 		nonKojiTargetResults := buildResult.TargetResultsFilterByName([]target.TargetName{target.TargetNameKoji})
-		if len(nonKojiTargetResults) > 0 {
-			imgOutputExtraInfo.UploadTargetResults = nonKojiTargetResults
+		for _, result := range nonKojiTargetResults {
+			imgOutputExtraInfo.UploadTargetResults = append(imgOutputExtraInfo.UploadTargetResults, result)
 		}
 
 		imgOutputsExtraInfo[imageFilename] = imgOutputExtraInfo

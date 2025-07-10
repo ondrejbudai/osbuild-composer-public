@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/osbuild/images/pkg/platform"
-	"github.com/osbuild/images/pkg/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/koji"
 )
 
@@ -53,7 +52,7 @@ func TestKojiRefund(t *testing.T) {
 		Principal: "osbuild-krb@LOCAL",
 		KeyTab:    shareDir + "/client.keytab",
 	}
-	k, err := koji.NewFromGSSAPI(server, credentials, transport)
+	k, err := koji.NewFromGSSAPI(server, credentials, transport, nil)
 	require.NoError(t, err)
 
 	defer func() {
@@ -114,7 +113,7 @@ func TestKojiImport(t *testing.T) {
 		Principal: "osbuild-krb@LOCAL",
 		KeyTab:    shareDir + "/client.keytab",
 	}
-	k, err := koji.NewFromGSSAPI(server, credentials, transport)
+	k, err := koji.NewFromGSSAPI(server, credentials, transport, nil)
 	require.NoError(t, err)
 
 	defer func() {
@@ -166,7 +165,7 @@ func TestKojiImport(t *testing.T) {
 				Arch: "noarch",
 			},
 			Tools: []koji.Tool{},
-			RPMs:  []rpmmd.RPM{},
+			RPMs:  []koji.RPM{},
 		},
 	}
 	output := []koji.BuildOutput{
@@ -178,7 +177,7 @@ func TestKojiImport(t *testing.T) {
 			ChecksumType: koji.ChecksumTypeMD5,
 			Checksum:     hash,
 			Type:         koji.BuildOutputTypeImage,
-			RPMs:         []rpmmd.RPM{},
+			RPMs:         []koji.RPM{},
 			Extra: &koji.BuildOutputExtra{
 				ImageOutput: koji.ImageExtraInfo{
 					Arch:     "noarch",
