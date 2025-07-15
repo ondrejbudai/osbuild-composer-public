@@ -29,12 +29,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
+	"github.com/osbuild/images/pkg/upload/koji"
 	"github.com/ondrejbudai/osbuild-composer-public/public/cloud/awscloud"
 	"github.com/ondrejbudai/osbuild-composer-public/public/cloud/gcp"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuildexecutor"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/azure"
-	"github.com/ondrejbudai/osbuild-composer-public/public/upload/koji"
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/vmware"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker/clienterrors"

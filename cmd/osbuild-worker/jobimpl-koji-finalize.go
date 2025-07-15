@@ -8,8 +8,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/osbuild/images/pkg/upload/koji"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
-	"github.com/ondrejbudai/osbuild-composer-public/public/upload/koji"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker/clienterrors"
 )
