@@ -29,12 +29,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
+	"github.com/osbuild/images/pkg/upload/azure"
 	"github.com/osbuild/images/pkg/upload/koji"
 	"github.com/ondrejbudai/osbuild-composer-public/public/cloud/awscloud"
 	"github.com/ondrejbudai/osbuild-composer-public/public/cloud/gcp"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuildexecutor"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
-	"github.com/ondrejbudai/osbuild-composer-public/public/upload/azure"
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/vmware"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker/clienterrors"
@@ -978,16 +978,19 @@ func (impl *OSBuildJobImpl) Run(job worker.Job) error {
 			}
 
 			logWithId.Info("[Azure] 📝 Registering the image")
+			hyperVGen := azure.HyperVGenV1
+			if targetOptions.HyperVGeneration == target.HyperVGenV2 {
+				hyperVGen = azure.HyperVGenV2
+			}
 			err = c.RegisterImage(
 				ctx,
-				targetOptions.SubscriptionID,
 				targetOptions.ResourceGroup,
 				storageAccount,
 				storageContainer,
 				blobName,
 				jobTarget.ImageName,
 				location,
-				targetOptions.HyperVGeneration,
+				hyperVGen,
 			)
 			if err != nil {
 				targetResult.TargetError = clienterrors.New(clienterrors.ErrorImportingImage, fmt.Sprintf("registering the image failed: %v", err), nil)
