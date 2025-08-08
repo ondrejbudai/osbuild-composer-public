@@ -33,6 +33,7 @@ import (
 	"github.com/osbuild/blueprint/pkg/blueprint"
 	"github.com/osbuild/images/pkg/arch"
 	"github.com/osbuild/images/pkg/container"
+	"github.com/osbuild/images/pkg/disk/partition"
 	"github.com/osbuild/images/pkg/distro"
 	"github.com/osbuild/images/pkg/distrofactory"
 	"github.com/osbuild/images/pkg/distroidparser"
@@ -2546,7 +2547,7 @@ func (api *API) composeHandler(writer http.ResponseWriter, request *http.Request
 	options := distro.ImageOptions{
 		Size:             size,
 		OSTree:           cr.OSTree,
-		PartitioningMode: pm,
+		PartitioningMode: partition.PartitioningMode(pm),
 	}
 	options.Facts = &facts.ImageOptions{
 		APIType: facts.WELDR_APITYPE,
@@ -2562,8 +2563,7 @@ func (api *API) composeHandler(writer http.ResponseWriter, request *http.Request
 		return
 	}
 
-	ibp := blueprint.Convert(*bp)
-	manifest, warnings, err := imageType.Manifest(&ibp, options, imageRepos, &seed)
+	manifest, warnings, err := imageType.Manifest(bp, options, imageRepos, &seed)
 	if err != nil {
 		errors := responseError{
 			ID:  "ManifestCreationFailed",

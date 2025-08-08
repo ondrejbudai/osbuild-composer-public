@@ -20,8 +20,8 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/osbuild/images/pkg/arch"
+	"github.com/osbuild/images/pkg/cloud/azure"
 	"github.com/osbuild/images/pkg/dnfjson"
-	"github.com/osbuild/images/pkg/upload/azure"
 	"github.com/osbuild/images/pkg/upload/koji"
 	"github.com/ondrejbudai/osbuild-composer-public/public/cloud/awscloud"
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/oci"
