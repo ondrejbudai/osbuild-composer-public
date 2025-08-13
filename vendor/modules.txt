@@ -972,6 +972,8 @@ github.com/osbuild/images/internal/workload
 github.com/osbuild/images/pkg/arch
 github.com/osbuild/images/pkg/artifact
 github.com/osbuild/images/pkg/cert
+github.com/osbuild/images/pkg/cloud
+github.com/osbuild/images/pkg/cloud/awscloud
 github.com/osbuild/images/pkg/cloud/azure
 github.com/osbuild/images/pkg/container
 github.com/osbuild/images/pkg/crypt
@@ -1014,12 +1016,10 @@ github.com/osbuild/images/pkg/rpmmd
 github.com/osbuild/images/pkg/runner
 github.com/osbuild/images/pkg/sbom
 github.com/osbuild/images/pkg/upload/koji
+github.com/osbuild/images/pkg/upload/vmware
 # github.com/osbuild/osbuild-composer/pkg/splunk_logger v0.0.0-20240814102216-0239db53236d
 ## explicit; go 1.21
 github.com/osbuild/osbuild-composer/pkg/splunk_logger
-# github.com/osbuild/pulp-client v0.1.0
-## explicit; go 1.19
-github.com/osbuild/pulp-client/pulpclient
 # github.com/perimeterx/marshmallow v1.1.5
 ## explicit; go 1.17
 github.com/perimeterx/marshmallow

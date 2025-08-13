@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -23,19 +22,21 @@ import (
 	"github.com/osbuild/images/pkg/osbuild"
 	"github.com/osbuild/images/pkg/sbom"
 
+	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/oci"
-	"github.com/ondrejbudai/osbuild-composer-public/public/upload/pulp"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/osbuild/images/pkg/cloud/azure"
+	"github.com/osbuild/images/pkg/platform"
 	"github.com/osbuild/images/pkg/upload/koji"
+	"github.com/osbuild/images/pkg/upload/vmware"
 	"github.com/ondrejbudai/osbuild-composer-public/public/cloud/awscloud"
 	"github.com/ondrejbudai/osbuild-composer-public/public/cloud/gcp"
 	"github.com/ondrejbudai/osbuild-composer-public/public/osbuildexecutor"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
-	"github.com/ondrejbudai/osbuild-composer-public/public/upload/vmware"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker/clienterrors"
 )
@@ -313,44 +314,6 @@ func (impl *OSBuildJobImpl) getContainerClient(destination string, targetOptions
 	}
 
 	return client, nil
-}
-
-// Read server configuration and credentials from the target options and fall
-// back to worker config if they are not set (targetOptions take precedent).
-// Mixing sources is allowed. For example, the server address can be configured
-// in the worker config while the targetOptions provide the credentials (or
-// vice versa).
-func (impl *OSBuildJobImpl) getPulpClient(targetOptions *target.PulpOSTreeTargetOptions) (*pulp.Client, error) {
-
-	var creds *pulp.Credentials
-	// Credentials are considered together. In other words, the username can't
-	// come from a different config source than the password.
-	if targetOptions.Username != "" && targetOptions.Password != "" {
-		creds = &pulp.Credentials{
-			Username: targetOptions.Username,
-			Password: targetOptions.Password,
-		}
-	}
-	address := targetOptions.ServerAddress
-	if address == "" {
-		// fall back to worker configuration for server address
-		address = impl.PulpConfig.ServerAddress
-	}
-	if address == "" {
-		return nil, fmt.Errorf("pulp server address not set")
-	}
-
-	if creds != nil {
-		return pulp.NewClient(address, creds), nil
-	}
-
-	// read from worker configuration
-	if impl.PulpConfig.CredsFilePath == "" {
-		return nil, fmt.Errorf("pulp credentials not set")
-	}
-
-	// use creds file loader helper
-	return pulp.NewClientFromFile(address, impl.PulpConfig.CredsFilePath)
 }
 
 func makeJobErrorFromOsbuildOutput(osbuildOutput *osbuild.Result) *clienterrors.Error {
@@ -725,18 +688,30 @@ func (impl *OSBuildJobImpl) Run(job worker.Job) error {
 				break
 			}
 
-			ami, err := a.Register(jobTarget.ImageName, bucket, targetOptions.Key, targetOptions.ShareWithAccounts, arch.Current().String(), targetOptions.BootMode)
+			// XXX: We should adjust the target options type for the boot mode to replace the following workaround
+			// but that will require a backwards compatibility layer for old worker / new composer.
+			var bootMode *platform.BootMode
+			if targetOptions.BootMode != nil {
+				switch *targetOptions.BootMode {
+				case string(ec2types.BootModeValuesLegacyBios):
+					bootMode = common.ToPtr(platform.BOOT_LEGACY)
+				case string(ec2types.BootModeValuesUefi):
+					bootMode = common.ToPtr(platform.BOOT_UEFI)
+				case string(ec2types.BootModeValuesUefiPreferred):
+					bootMode = common.ToPtr(platform.BOOT_HYBRID)
+				default:
+					logrus.Warnf("Unknown boot mode %q, using default", *targetOptions.BootMode)
+				}
+			}
+
+			ami, _, err := a.Register(jobTarget.ImageName, bucket, targetOptions.Key, targetOptions.ShareWithAccounts, arch.Current(), bootMode, nil)
 			if err != nil {
 				targetResult.TargetError = clienterrors.New(clienterrors.ErrorImportingImage, err.Error(), nil)
 				break
 			}
 
-			if ami == nil {
-				targetResult.TargetError = clienterrors.New(clienterrors.ErrorImportingImage, "No ami returned", nil)
-				break
-			}
 			targetResult.Options = &target.AWSTargetResultOptions{
-				Ami:    *ami,
+				Ami:    ami,
 				Region: targetOptions.Region,
 			}
 
@@ -1315,23 +1290,6 @@ func (impl *OSBuildJobImpl) Run(job worker.Job) error {
 			}
 			logWithId.Printf("[container] 🎉 Image uploaded (%s)!", digest.String())
 			targetResult.Options = &target.ContainerTargetResultOptions{URL: client.Target.String(), Digest: digest.String()}
-
-		case *target.PulpOSTreeTargetOptions:
-			targetResult = target.NewPulpOSTreeTargetResult(nil, &artifact)
-			archivePath := filepath.Join(outputDirectory, jobTarget.OsbuildArtifact.ExportName, jobTarget.OsbuildArtifact.ExportFilename)
-
-			client, err := impl.getPulpClient(targetOptions)
-			if err != nil {
-				targetResult.TargetError = clienterrors.New(clienterrors.ErrorInvalidConfig, err.Error(), nil)
-				break
-			}
-
-			url, err := client.UploadAndDistributeCommit(archivePath, targetOptions.Repository, targetOptions.BasePath)
-			if err != nil {
-				targetResult.TargetError = clienterrors.New(clienterrors.ErrorUploadingImage, err.Error(), nil)
-				break
-			}
-			targetResult.Options = &target.PulpOSTreeTargetResultOptions{RepoURL: url}
 
 		default:
 			// TODO: we may not want to return completely here with multiple targets, because then no TargetErrors will be added to the JobError details

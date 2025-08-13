@@ -2,79 +2,13 @@ package awscloud_test
 
 import (
 	"context"
-	"io"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"github.com/stretchr/testify/require"
 )
-
-type s3mock struct {
-	t *testing.T
-
-	bucket string
-	key    string
-}
-
-func (m *s3mock) DeleteObject(ctx context.Context, input *s3.DeleteObjectInput, optfns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error) {
-	require.Equal(m.t, m.bucket, *input.Bucket)
-	require.Equal(m.t, m.key, *input.Key)
-	return nil, nil
-}
-
-func (m *s3mock) PutObjectAcl(ctx context.Context, input *s3.PutObjectAclInput, optfns ...func(*s3.Options)) (*s3.PutObjectAclOutput, error) {
-	require.Equal(m.t, m.bucket, *input.Bucket)
-	require.Equal(m.t, m.key, *input.Key)
-	require.Equal(m.t, s3types.ObjectCannedACL(s3types.ObjectCannedACLPublicRead), input.ACL)
-	return nil, nil
-}
-
-type s3upldrmock struct {
-	t *testing.T
-
-	contents string
-	bucket   string
-	key      string
-}
-
-func (m *s3upldrmock) Upload(ctx context.Context, input *s3.PutObjectInput, optfns ...func(*manager.Uploader)) (*manager.UploadOutput, error) {
-	body, err := io.ReadAll(input.Body)
-	require.NoError(m.t, err)
-	require.Equal(m.t, m.contents, string(body))
-	require.Equal(m.t, m.bucket, *input.Bucket)
-	require.Equal(m.t, m.key, *input.Key)
-	return nil, nil
-}
-
-type s3signmock struct {
-	t *testing.T
-
-	bucket string
-	key    string
-}
-
-func (m *s3signmock) PresignGetObject(ctx context.Context, input *s3.GetObjectInput, optfns ...func(*s3.PresignOptions)) (*v4.PresignedHTTPRequest, error) {
-	require.Equal(m.t, m.bucket, *input.Bucket)
-	require.Equal(m.t, m.key, *input.Key)
-
-	opts := &s3.PresignOptions{}
-	for _, fn := range optfns {
-		fn(opts)
-	}
-	require.Equal(m.t, time.Duration(7*24*time.Hour), opts.Expires)
-
-	return &v4.PresignedHTTPRequest{
-		URL: "https://url.real",
-	}, nil
-}
 
 type ec2imdsmock struct {
 	t *testing.T
@@ -113,20 +47,6 @@ func newEc2Mock(t *testing.T) *ec2mock {
 		calledFn:   make(map[string]int),
 		failFn:     make(map[string]error),
 	}
-}
-
-func (m *ec2mock) DescribeRegions(ctx context.Context, input *ec2.DescribeRegionsInput, optfns ...func(*ec2.Options)) (*ec2.DescribeRegionsOutput, error) {
-	m.calledFn["DescribeRegions"] += 1
-	return &ec2.DescribeRegionsOutput{
-		Regions: []ec2types.Region{
-			{
-				RegionName: aws.String("region1"),
-			},
-			{
-				RegionName: aws.String("region2"),
-			},
-		},
-	}, nil
 }
 
 func (m *ec2mock) AuthorizeSecurityGroupIngress(ctx context.Context, input *ec2.AuthorizeSecurityGroupIngressInput, optfns ...func(*ec2.Options)) (*ec2.AuthorizeSecurityGroupIngressOutput, error) {
@@ -273,11 +193,6 @@ func (m *ec2mock) DescribeInstanceStatus(ctx context.Context, input *ec2.Describ
 	}, nil
 }
 
-func (m *ec2mock) RunInstances(ctx context.Context, input *ec2.RunInstancesInput, optfns ...func(*ec2.Options)) (*ec2.RunInstancesOutput, error) {
-	m.calledFn["RunInstances"] += 1
-	return nil, nil
-}
-
 func (m *ec2mock) TerminateInstances(ctx context.Context, input *ec2.TerminateInstancesInput, optfns ...func(*ec2.Options)) (*ec2.TerminateInstancesOutput, error) {
 	m.calledFn["TerminateInstances"] += 1
 	return nil, nil
@@ -331,13 +246,6 @@ func (m *ec2mock) CopyImage(ctx context.Context, input *ec2.CopyImageInput, optf
 	}, nil
 }
 
-func (m *ec2mock) RegisterImage(ctx context.Context, input *ec2.RegisterImageInput, optfns ...func(*ec2.Options)) (*ec2.RegisterImageOutput, error) {
-	m.calledFn["RegisterImage"] += 1
-	return &ec2.RegisterImageOutput{
-		ImageId: &m.imageId,
-	}, nil
-}
-
 func (m *ec2mock) DeregisterImage(ctx context.Context, input *ec2.DeregisterImageInput, optfns ...func(*ec2.Options)) (*ec2.DeregisterImageOutput, error) {
 	m.calledFn["DeregisterImage"] += 1
 	return nil, nil
@@ -384,13 +292,6 @@ func (m *ec2mock) DescribeImportSnapshotTasks(ctx context.Context, input *ec2.De
 				},
 			},
 		},
-	}, nil
-}
-
-func (m *ec2mock) ImportSnapshot(ctx context.Context, input *ec2.ImportSnapshotInput, optfns ...func(*ec2.Options)) (*ec2.ImportSnapshotOutput, error) {
-	m.calledFn["ImportSnapshot"] += 1
-	return &ec2.ImportSnapshotOutput{
-		ImportTaskId: aws.String("import-task-id"),
 	}, nil
 }
 

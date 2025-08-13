@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path"
@@ -22,6 +23,7 @@ import (
 	"github.com/osbuild/images/pkg/arch"
 	"github.com/osbuild/images/pkg/cloud/azure"
 	"github.com/osbuild/images/pkg/dnfjson"
+	"github.com/osbuild/images/pkg/olog"
 	"github.com/osbuild/images/pkg/upload/koji"
 	"github.com/ondrejbudai/osbuild-composer-public/public/cloud/awscloud"
 	"github.com/ondrejbudai/osbuild-composer-public/public/upload/oci"
@@ -398,13 +400,6 @@ var run = func() {
 		}
 	}
 
-	var pulpCredsFilePath = ""
-	var pulpAddress = ""
-	if config.Pulp != nil {
-		pulpCredsFilePath = config.Pulp.Credentials
-		pulpAddress = config.Pulp.ServerURL
-	}
-
 	var repositoryMTLSConfig *RepositoryMTLSConfig
 	if config.RepositoryMTLSConfig != nil {
 		baseURL, err := url.Parse(config.RepositoryMTLSConfig.BaseURL)
@@ -501,10 +496,6 @@ var run = func() {
 				CertPath:     containersCertPath,
 				TLSVerify:    &containersTLSVerify,
 			},
-			PulpConfig: PulpConfiguration{
-				CredsFilePath: pulpCredsFilePath,
-				ServerAddress: pulpAddress,
-			},
 			RepositoryMTLSConfig: repositoryMTLSConfig,
 		},
 		worker.JobTypeKojiInit: &KojiInitJobImpl{
@@ -548,6 +539,8 @@ func main() {
 			logrus.Fatalf("worker crashed: %s\n%s", r, debug.Stack())
 		}
 	}()
+
+	olog.SetDefault(log.New(logrus.New().Writer(), "osbuild/images log: ", 0))
 
 	run()
 }
