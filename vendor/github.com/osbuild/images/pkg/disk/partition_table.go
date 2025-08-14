@@ -32,30 +32,6 @@ type PartitionTable struct {
 	StartOffset uint64 `json:"start_offset,omitempty" yaml:"start_offset,omitempty"`
 }
 
-// TODO: PartitioningMode is a copy of
-// pkg/disk/partition.PartitioningMode - drop once
-// https://github.com/osbuild/blueprint/pull/26 is merged
-type PartitioningMode string
-
-const (
-	// AutoLVMPartitioningMode creates a LVM layout if the filesystem
-	// contains a mountpoint that's not defined in the base partition table
-	// of the specified image type. In the other case, a raw layout is used.
-	AutoLVMPartitioningMode PartitioningMode = "auto-lvm"
-
-	// LVMPartitioningMode always creates an LVM layout.
-	LVMPartitioningMode PartitioningMode = "lvm"
-
-	// RawPartitioningMode always creates a raw layout.
-	RawPartitioningMode PartitioningMode = "raw"
-
-	// BtrfsPartitioningMode creates a btrfs layout.
-	BtrfsPartitioningMode PartitioningMode = "btrfs"
-
-	// DefaultPartitioningMode is AutoLVMPartitioningMode and is the empty state
-	DefaultPartitioningMode PartitioningMode = ""
-)
-
 // DefaultBootPartitionSize is the default size of the /boot partition if it
 // needs to be auto-created. This happens if the custom partitioning don't
 // specify one, but the image requires one to boot (/ is on btrfs, or an LV).
@@ -1115,7 +1091,7 @@ func hasESP(disk *blueprint.DiskCustomization) bool {
 	}
 
 	for _, part := range disk.Partitions {
-		if part.Type == "plain" && part.Mountpoint == "/boot/efi" {
+		if (part.Type == "plain" || part.Type == "") && part.Mountpoint == "/boot/efi" {
 			return true
 		}
 	}
@@ -1229,7 +1205,7 @@ func mkESP(size uint64, ptType PartitionTableType) (Partition, error) {
 			UUID:         EFIFilesystemUUID,
 			Mountpoint:   "/boot/efi",
 			Label:        "ESP",
-			FSTabOptions: "defaults,uid=0,gid=0,umask=077,shortname=winnt",
+			FSTabOptions: ESPFstabOptions,
 			FSTabFreq:    0,
 			FSTabPassNo:  2,
 		},
@@ -1431,6 +1407,8 @@ func addPlainPartition(pt *PartitionTable, partition blueprint.PartitionCustomiz
 			typeName = "usr"
 		case partition.Mountpoint == "/boot":
 			typeName = "boot"
+		case partition.Mountpoint == "/boot/efi":
+			typeName = "esp"
 		case fstype == "none":
 			typeName = "data"
 		case fstype == "swap":
@@ -1455,12 +1433,20 @@ func addPlainPartition(pt *PartitionTable, partition blueprint.PartitionCustomiz
 			FSTabOptions: "defaults", // TODO: add customization
 		}
 	default:
+		fstabOptions := "defaults"
+		if partition.Mountpoint == "/boot/efi" {
+			// As long as the fstab options are not customizable, let's
+			// special-case the ESP options for consistency. Remove this when
+			// we make fstab options customizable.
+			fstabOptions = ESPFstabOptions
+		}
 		payload = &Filesystem{
 			Type:         fstype,
 			Label:        partition.Label,
 			Mountpoint:   partition.Mountpoint,
-			FSTabOptions: "defaults", // TODO: add customization
+			FSTabOptions: fstabOptions, // TODO: add customization
 		}
+
 	}
 
 	newpart := Partition{

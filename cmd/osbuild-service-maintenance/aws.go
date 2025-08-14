@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"golang.org/x/sync/semaphore"
 
@@ -96,7 +97,7 @@ func AWSCleanup(maxConcurrentRequests int, dryRun bool, accessKeyID, accessKey s
 				defer sem.Release(1)
 				defer wg.Done()
 
-				err := a.RemoveSnapshotAndDeregisterImage(&images[i])
+				err := a.DeleteEC2Image(aws.ToString(images[i].ImageId))
 				if err != nil {
 					log.Printf("Cleanup for image %s in region %s failed: %v", *images[i].ImageId, region, err)
 				}
@@ -154,7 +155,7 @@ func terminateOrphanedSecureInstances(a *awscloud.AWS, dryRun bool) error {
 	log.Printf("Cleaning up executor instances: %v", instanceIDs)
 	if !dryRun {
 		if len(instanceIDs) > 0 {
-			err = a.TerminateInstances(instanceIDs)
+			_, err = a.TerminateInstancesEC2(instanceIDs, 0)
 			if err != nil {
 				return fmt.Errorf("Unable to terminate secure instances: %w", err)
 			}
