@@ -9,26 +9,45 @@ import (
 	"cloud.google.com/go/compute/apiv1/computepb"
 	"google.golang.org/api/option"
 
-	"github.com/ondrejbudai/osbuild-composer-public/public/common"
+	"github.com/osbuild/images/internal/common"
 )
+
+// Default Guest OS Features [1]. Note that officially Google creates the
+// RHEL images in the rhel-cloud project in the rhel8,rhel9,etc image
+// families. Periodically we'll want to make sure that the lists here
+// are up to date with what is being produced there. You can see this
+// with a command like:
+//    gcloud compute images describe-from-family --project rhel-cloud rhel-9
+//
+// Note also for the time being that we should make sure the image upload
+// code for CoreOS [2] should be kept in sync with this until CoreOS
+// starts using OSBuild for image uploading.
+//
+// [1] https://cloud.google.com/compute/docs/images/create-custom#guest-os-features
+// [2] https://github.com/coreos/coreos-assembler/blob/main/mantle/platform/api/gcloud/image.go
 
 // Guest OS Features for RHEL8 images
 var GuestOsFeaturesRHEL8 []*computepb.GuestOsFeature = []*computepb.GuestOsFeature{
 	{Type: common.ToPtr(computepb.GuestOsFeature_UEFI_COMPATIBLE.String())},
 	{Type: common.ToPtr(computepb.GuestOsFeature_VIRTIO_SCSI_MULTIQUEUE.String())},
 	{Type: common.ToPtr(computepb.GuestOsFeature_SEV_CAPABLE.String())},
+	{Type: common.ToPtr(computepb.GuestOsFeature_SEV_SNP_CAPABLE.String())},
+	{Type: common.ToPtr(computepb.GuestOsFeature_SEV_LIVE_MIGRATABLE.String())},
+	{Type: common.ToPtr(computepb.GuestOsFeature_SEV_LIVE_MIGRATABLE_V2.String())},
+	{Type: common.ToPtr(computepb.GuestOsFeature_GVNIC.String())},
+	{Type: common.ToPtr(computepb.GuestOsFeature_IDPF.String())},
 }
 
-// Guest OS Features for RHEL9 images.  Note that if you update this, also
-// consider changing the code in https://github.com/coreos/coreos-assembler/blob/0083086c4720b602b8243effb85c0a1f73f013dd/mantle/platform/api/gcloud/image.go#L105
-// for RHEL CoreOS which uses coreos-assembler today.
+// Guest OS Features for RHEL9 images.
 var GuestOsFeaturesRHEL9 []*computepb.GuestOsFeature = []*computepb.GuestOsFeature{
 	{Type: common.ToPtr(computepb.GuestOsFeature_UEFI_COMPATIBLE.String())},
 	{Type: common.ToPtr(computepb.GuestOsFeature_VIRTIO_SCSI_MULTIQUEUE.String())},
 	{Type: common.ToPtr(computepb.GuestOsFeature_SEV_CAPABLE.String())},
-	{Type: common.ToPtr(computepb.GuestOsFeature_GVNIC.String())},
 	{Type: common.ToPtr(computepb.GuestOsFeature_SEV_SNP_CAPABLE.String())},
+	{Type: common.ToPtr(computepb.GuestOsFeature_SEV_LIVE_MIGRATABLE.String())},
 	{Type: common.ToPtr(computepb.GuestOsFeature_SEV_LIVE_MIGRATABLE_V2.String())},
+	{Type: common.ToPtr(computepb.GuestOsFeature_GVNIC.String())},
+	{Type: common.ToPtr(computepb.GuestOsFeature_IDPF.String())},
 	{Type: common.ToPtr(computepb.GuestOsFeature_TDX_CAPABLE.String())},
 }
 
@@ -77,19 +96,17 @@ func GuestOsFeaturesByDistro(distroName string) []*computepb.GuestOsFeature {
 	case strings.HasPrefix(distroName, "rhel-8"):
 		return GuestOsFeaturesRHEL8
 
-	// TODO: this should be updated for the dot-notation
-	case distroName == "rhel-90":
+	case distroName == "rhel-9.0":
 		return GuestOsFeaturesRHEL90
-	// TODO: this should be updated for the dot-notation
-	case distroName == "rhel-91":
+	case distroName == "rhel-9.1":
 		return GuestOsFeaturesRHEL91
-	case distroName == "rhel-92":
+	case distroName == "rhel-9.2":
 		fallthrough
-	case distroName == "rhel-93":
+	case distroName == "rhel-9.3":
 		fallthrough
-	case distroName == "rhel-94":
+	case distroName == "rhel-9.4":
 		fallthrough
-	case distroName == "rhel-95":
+	case distroName == "rhel-9.5":
 		return GuestOsFeaturesRHEL95
 	case strings.HasPrefix(distroName, "centos-9"):
 		fallthrough

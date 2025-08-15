@@ -9,9 +9,9 @@ import (
 	"time"
 
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/osbuild/images/pkg/cloud/gcp"
 	"github.com/osbuild/images/pkg/distro"
 	"github.com/osbuild/images/pkg/platform"
-	"github.com/ondrejbudai/osbuild-composer-public/public/cloud/gcp"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/sirupsen/logrus"
 
