@@ -371,13 +371,11 @@ type ImageTypeYAML struct {
 	DefaultSize uint64 `yaml:"default_size"`
 	// the image func name: disk,container,live-installer,...
 	Image                  string            `yaml:"image_func"`
-	BuildPipelines         []string          `yaml:"build_pipelines"`
-	PayloadPipelines       []string          `yaml:"payload_pipelines"`
 	Exports                []string          `yaml:"exports"`
 	RequiredPartitionSizes map[string]uint64 `yaml:"required_partition_sizes"`
 
-	InternalPlatforms []platform.PlatformConf `yaml:"platforms"`
-	PlatformsOverride *platformsOverride      `yaml:"platforms_override"`
+	InternalPlatforms []platform.Data    `yaml:"platforms"`
+	PlatformsOverride *platformsOverride `yaml:"platforms_override"`
 
 	NameAliases []string `yaml:"name_aliases"`
 
@@ -398,7 +396,7 @@ func (it *ImageTypeYAML) Name() string {
 	return it.name
 }
 
-func (it *ImageTypeYAML) PlatformsFor(id distro.ID) ([]platform.PlatformConf, error) {
+func (it *ImageTypeYAML) PlatformsFor(id distro.ID) ([]platform.Data, error) {
 	pl := it.InternalPlatforms
 	if it.PlatformsOverride != nil {
 		var nMatches int
@@ -467,8 +465,8 @@ type platformsOverride struct {
 }
 
 type conditionsPlatforms struct {
-	When     whenCondition           `yaml:"when,omitempty"`
-	Override []platform.PlatformConf `yaml:"override"`
+	When     whenCondition   `yaml:"when,omitempty"`
+	Override []platform.Data `yaml:"override"`
 }
 
 type imageConfig struct {

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/osbuild/images/pkg/distro"
+	"github.com/stretchr/testify/assert"
+
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker/clienterrors"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestOSBuildJobResultTargetErrors(t *testing.T) {
@@ -429,8 +429,8 @@ func TestOSBuildJobExportsCompatibilityUnmarshal(t *testing.T) {
 					},
 				},
 				PipelineNames: &PipelineNames{
-					Build:   distro.BuildPipelinesFallback(),
-					Payload: distro.PayloadPipelinesFallback(),
+					Build:   BuildPipelinesFallback,
+					Payload: PayloadPipelinesFallback,
 				},
 			},
 			expectedExports: []string{"archive"},
@@ -456,8 +456,8 @@ func TestOSBuildJobExportsCompatibilityUnmarshal(t *testing.T) {
 					},
 				},
 				PipelineNames: &PipelineNames{
-					Build:   distro.BuildPipelinesFallback(),
-					Payload: distro.PayloadPipelinesFallback(),
+					Build:   BuildPipelinesFallback,
+					Payload: PayloadPipelinesFallback,
 				},
 			},
 			expectedExports: []string{"archive"},
@@ -484,8 +484,8 @@ func TestOSBuildJobExportsCompatibilityUnmarshal(t *testing.T) {
 					},
 				},
 				PipelineNames: &PipelineNames{
-					Build:   distro.BuildPipelinesFallback(),
-					Payload: distro.PayloadPipelinesFallback(),
+					Build:   BuildPipelinesFallback,
+					Payload: PayloadPipelinesFallback,
 				},
 			},
 			expectedExports: []string{"archive"},

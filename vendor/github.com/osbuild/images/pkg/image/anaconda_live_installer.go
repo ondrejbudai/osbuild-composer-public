@@ -5,7 +5,6 @@ import (
 	"math/rand"
 
 	"github.com/osbuild/images/internal/environment"
-	"github.com/osbuild/images/internal/workload"
 	"github.com/osbuild/images/pkg/arch"
 	"github.com/osbuild/images/pkg/artifact"
 	"github.com/osbuild/images/pkg/datasizes"
@@ -17,15 +16,14 @@ import (
 
 type AnacondaLiveInstaller struct {
 	Base
-	Platform    platform.Platform
-	Environment environment.Environment
-	Workload    workload.Workload
+	Platform                platform.Platform
+	InstallerCustomizations manifest.InstallerCustomizations
+	Environment             environment.Environment
+	ImgTypeCustomizations   manifest.OSCustomizations
 
 	ExtraBasePackages rpmmd.PackageSet
 
 	RootfsCompression string
-	RootfsType        manifest.RootfsType
-	ISOBoot           manifest.ISOBootType
 
 	ISOLabel  string
 	Product   string
@@ -35,8 +33,6 @@ type AnacondaLiveInstaller struct {
 	Preview   bool
 
 	Filename string
-
-	AdditionalKernelOpts []string
 
 	// Locale for the installer. This should be set to the same locale as the
 	// ISO OS payload, if known.
@@ -76,6 +72,7 @@ func (img *AnacondaLiveInstaller) InstantiateManifest(m *manifest.Manifest,
 	livePipeline.Variant = img.Variant
 	livePipeline.Biosdevname = (img.Platform.GetArch() == arch.ARCH_X86_64)
 	livePipeline.Locale = img.Locale
+	livePipeline.InstallerCustomizations = img.InstallerCustomizations
 
 	// The live installer has SELinux enabled and targeted
 	livePipeline.SELinux = "targeted"
@@ -83,7 +80,7 @@ func (img *AnacondaLiveInstaller) InstantiateManifest(m *manifest.Manifest,
 	livePipeline.Checkpoint()
 
 	var rootfsImagePipeline *manifest.ISORootfsImg
-	switch img.RootfsType {
+	switch img.InstallerCustomizations.ISORootfsType {
 	case manifest.SquashfsExt4Rootfs:
 		rootfsImagePipeline = manifest.NewISORootfsImg(buildPipeline, livePipeline)
 		rootfsImagePipeline.Size = 8 * datasizes.GibiByte
@@ -94,6 +91,7 @@ func (img *AnacondaLiveInstaller) InstantiateManifest(m *manifest.Manifest,
 	bootTreePipeline.Platform = img.Platform
 	bootTreePipeline.UEFIVendor = img.Platform.GetUEFIVendor()
 	bootTreePipeline.ISOLabel = img.ISOLabel
+	bootTreePipeline.DefaultMenu = img.InstallerCustomizations.DefaultMenu
 
 	kernelOpts := []string{
 		fmt.Sprintf("root=live:CDLABEL=%s", img.ISOLabel),
@@ -102,7 +100,7 @@ func (img *AnacondaLiveInstaller) InstantiateManifest(m *manifest.Manifest,
 		"rhgb",
 	}
 
-	kernelOpts = append(kernelOpts, img.AdditionalKernelOpts...)
+	kernelOpts = append(kernelOpts, img.InstallerCustomizations.AdditionalKernelOpts...)
 
 	bootTreePipeline.KernelOpts = kernelOpts
 
@@ -111,14 +109,14 @@ func (img *AnacondaLiveInstaller) InstantiateManifest(m *manifest.Manifest,
 	isoTreePipeline.Release = img.Release
 
 	isoTreePipeline.KernelOpts = kernelOpts
-	isoTreePipeline.ISOBoot = img.ISOBoot
+	isoTreePipeline.ISOBoot = img.InstallerCustomizations.ISOBoot
 
 	isoTreePipeline.RootfsCompression = img.RootfsCompression
-	isoTreePipeline.RootfsType = img.RootfsType
+	isoTreePipeline.RootfsType = img.InstallerCustomizations.ISORootfsType
 
 	isoPipeline := manifest.NewISO(buildPipeline, isoTreePipeline, img.ISOLabel)
 	isoPipeline.SetFilename(img.Filename)
-	isoPipeline.ISOBoot = img.ISOBoot
+	isoPipeline.ISOBoot = img.InstallerCustomizations.ISOBoot
 
 	artifact := isoPipeline.Export()
 
