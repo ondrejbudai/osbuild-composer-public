@@ -21,8 +21,8 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/pkg/jobqueue"
 	"github.com/ondrejbudai/osbuild-composer-public/pkg/jobqueue/dbjobqueue"
 
+	"github.com/osbuild/images/pkg/depsolvednf"
 	"github.com/osbuild/images/pkg/distrofactory"
-	"github.com/osbuild/images/pkg/dnfjson"
 	"github.com/osbuild/images/pkg/reporegistry"
 	"github.com/ondrejbudai/osbuild-composer-public/public/auth"
 	"github.com/ondrejbudai/osbuild-composer-public/public/cloudapi"
@@ -40,7 +40,7 @@ type Composer struct {
 	distros  *distrofactory.Factory
 	repos    *reporegistry.RepoRegistry
 
-	solver *dnfjson.BaseSolver
+	solver *depsolvednf.BaseSolver
 
 	workers *worker.Server
 	weldr   *weldr.API
@@ -92,8 +92,8 @@ func NewComposer(config *ComposerConfigFile, stateDir, cacheDir string) (*Compos
 		return nil, fmt.Errorf("error loading repository definitions: %w", err)
 	}
 
-	c.solver = dnfjson.NewBaseSolver(path.Join(c.cacheDir, "rpmmd"))
-	c.solver.SetDNFJSONPath(c.config.DNFJson)
+	c.solver = depsolvednf.NewBaseSolver(path.Join(c.cacheDir, "rpmmd"))
+	c.solver.SetDepsolveDNFPath(c.config.DNFJson)
 
 	// Clean up the cache, removes unknown distros and files.
 	// If no repos are configured, the cache is cleared out completely.
