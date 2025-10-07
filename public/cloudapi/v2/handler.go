@@ -226,6 +226,8 @@ func imageTypeFromApiImageType(it ImageTypes, arch distro.Arch) string {
 		return "minimal-raw"
 	case ImageTypesOci:
 		return "oci"
+	case ImageTypesPxeTarXz:
+		return "pxe-tar-xz"
 	case ImageTypesWsl:
 		return "wsl"
 	}
@@ -931,6 +933,10 @@ func sbomsFromOSBuildJob(w *worker.Server, osbuildJobUUID uuid.UUID) ([]ImageSBO
 	osbuildJobInfo, err := w.OSBuildJobInfo(osbuildJobUUID, &osbuildJobResult)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to get results for OSBuild job %q: %v", osbuildJobUUID, err)
+	}
+
+	if osbuildJobResult.PipelineNames == nil {
+		return nil, fmt.Errorf("OSBuild job %q: missing pipeline names", osbuildJobUUID)
 	}
 
 	pipelineNameToPurpose := func(pipelineName string) (ImageSBOMPipelinePurpose, error) {
