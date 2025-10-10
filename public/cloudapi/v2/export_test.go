@@ -8,8 +8,8 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"
 )
 
-// OverrideSerializeManifestFunc overrides the serializeManifestFunc for testing
-func OverrideSerializeManifestFunc(f func(ctx context.Context, manifestSource *manifest.Manifest, workers *worker.Server, depsolveJobID, containerResolveJobID, ostreeResolveJobID, manifestJobID uuid.UUID, seed int64)) func() {
+// MockSerializeManifestFunc overrides the serializeManifestFunc for testing
+func MockSerializeManifestFunc(f func(ctx context.Context, manifestSource *manifest.Manifest, workers *worker.Server, depsolveJobID, containerResolveJobID, ostreeResolveJobID, manifestJobID uuid.UUID, seed int64)) (restore func()) {
 	originalSerializeManifestFunc := serializeManifestFunc
 	serializeManifestFunc = f
 	return func() {
