@@ -24,7 +24,7 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/weldrtypes"
 )
 
-func getManifest(bp blueprint.Blueprint, t distro.ImageType, a distro.Arch, d distro.Distro, cacheDir string, repos []rpmmd.RepoConfig) (manifest.OSBuildManifest, []rpmmd.PackageSpec) {
+func getManifest(bp blueprint.Blueprint, t distro.ImageType, a distro.Arch, d distro.Distro, cacheDir string, repos []rpmmd.RepoConfig) (manifest.OSBuildManifest, rpmmd.PackageList) {
 	manifest, _, err := t.Manifest(&bp, distro.ImageOptions{}, repos, nil)
 	if err != nil {
 		panic(err)
@@ -182,7 +182,7 @@ func main() {
 			awsTarget,
 		},
 		id1,
-		weldrtypes.RPMMDPackageSpecListToDepsolvedPackageInfoList(packages),
+		weldrtypes.RPMMDPackageListToDepsolvedPackageInfoList(packages),
 	)
 	if err != nil {
 		panic(err)
@@ -197,7 +197,7 @@ func main() {
 			awsTarget,
 		},
 		id2,
-		weldrtypes.RPMMDPackageSpecListToDepsolvedPackageInfoList(packages),
+		weldrtypes.RPMMDPackageListToDepsolvedPackageInfoList(packages),
 	)
 	if err != nil {
 		panic(err)
