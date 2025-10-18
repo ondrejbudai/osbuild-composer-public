@@ -8,8 +8,10 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"
 )
 
+type ManifestJobDependencies = manifestJobDependencies
+
 // MockSerializeManifestFunc overrides the serializeManifestFunc for testing
-func MockSerializeManifestFunc(f func(ctx context.Context, manifestSource *manifest.Manifest, workers *worker.Server, depsolveJobID, containerResolveJobID, ostreeResolveJobID, manifestJobID uuid.UUID, seed int64)) (restore func()) {
+func MockSerializeManifestFunc(f func(ctx context.Context, manifestSource *manifest.Manifest, workers *worker.Server, dependencies manifestJobDependencies, manifestJobID uuid.UUID, seed int64)) (restore func()) {
 	originalSerializeManifestFunc := serializeManifestFunc
 	serializeManifestFunc = f
 	return func() {
