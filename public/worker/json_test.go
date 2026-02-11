@@ -10,6 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/osbuild/images/pkg/depsolvednf"
+	"github.com/osbuild/images/pkg/rpmmd"
+	"github.com/osbuild/images/pkg/sbom"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker/clienterrors"
@@ -859,6 +862,466 @@ func TestDepsolvedPackageMarshalJSON(t *testing.T) {
 			json, err := json.Marshal(testCase.depsolvedPackage)
 			require.NoError(t, err)
 			assert.EqualValues(t, testCase.json, string(json))
+		})
+	}
+}
+
+func TestDepsolvedRepoConfigJSONRoundtrip(t *testing.T) {
+	testCases := []struct {
+		name   string
+		config DepsolvedRepoConfig
+	}{
+		{
+			name:   "empty",
+			config: DepsolvedRepoConfig{},
+		},
+		{
+			name: "minimal",
+			config: DepsolvedRepoConfig{
+				Id:       "test-repo",
+				BaseURLs: []string{"https://example.com/repo"},
+			},
+		},
+		{
+			name: "with-pointer-fields",
+			config: DepsolvedRepoConfig{
+				Id:           "test-repo",
+				BaseURLs:     []string{"https://example.com/repo"},
+				CheckGPG:     common.ToPtr(true),
+				CheckRepoGPG: common.ToPtr(false),
+				Priority:     common.ToPtr(10),
+				IgnoreSSL:    common.ToPtr(false),
+				Enabled:      common.ToPtr(true),
+			},
+		},
+		{
+			name: "full",
+			config: DepsolvedRepoConfig{
+				Id:             "test-repo",
+				Name:           "Test Repository",
+				BaseURLs:       []string{"https://example.com/repo", "http://mirror.example.com/repo"},
+				Metalink:       "https://example.com/metalink",
+				MirrorList:     "https://example.com/mirrorlist",
+				GPGKeys:        []string{"-----BEGIN PGP PUBLIC KEY BLOCK-----"},
+				CheckGPG:       common.ToPtr(true),
+				CheckRepoGPG:   common.ToPtr(false),
+				Priority:       common.ToPtr(10),
+				IgnoreSSL:      common.ToPtr(false),
+				MetadataExpire: "6h",
+				ModuleHotfixes: common.ToPtr(true),
+				RHSM:           true,
+				Enabled:        common.ToPtr(true),
+				ImageTypeTags:  []string{"edge-commit", "edge-container"},
+				PackageSets:    []string{"os", "blueprint"},
+				SSLCACert:      "/etc/pki/ca.crt",
+				SSLClientKey:   "/etc/pki/client.key",
+				SSLClientCert:  "/etc/pki/client.crt",
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(tc.config)
+			require.NoError(t, err)
+
+			var result DepsolvedRepoConfig
+			err = json.Unmarshal(data, &result)
+			require.NoError(t, err)
+
+			assert.EqualValues(t, tc.config, result)
+		})
+	}
+}
+
+func TestDepsolvedRepoConfigRPMMDConversion(t *testing.T) {
+	testCases := []struct {
+		name   string
+		config rpmmd.RepoConfig
+	}{
+		{
+			name:   "empty",
+			config: rpmmd.RepoConfig{},
+		},
+		{
+			name: "typical",
+			config: rpmmd.RepoConfig{
+				Id:        "baseos",
+				Name:      "BaseOS",
+				BaseURLs:  []string{"https://example.com/baseos"},
+				CheckGPG:  common.ToPtr(true),
+				IgnoreSSL: common.ToPtr(false),
+				RHSM:      true,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dto := DepsolvedRepoConfigFromRPMMD(tc.config)
+			result := dto.ToRPMMD()
+			assert.EqualValues(t, tc.config, result)
+		})
+	}
+}
+
+func TestDepsolveJobResultToDepsolvednfResult(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    DepsolveJobResult
+		expected map[string]depsolvednf.DepsolveResult
+	}{
+		{
+			name:     "empty",
+			input:    DepsolveJobResult{},
+			expected: map[string]depsolvednf.DepsolveResult{},
+		},
+		{
+			name: "single-pipeline-without-sbom",
+			input: DepsolveJobResult{
+				PackageSpecs: map[string]DepsolvedPackageList{
+					"os": {
+						{Name: "bash", Version: "5.0", Arch: "x86_64"},
+						{Name: "coreutils", Version: "8.32", Arch: "x86_64"},
+					},
+				},
+				RepoConfigs: map[string][]DepsolvedRepoConfig{
+					"os": {
+						{Id: "baseos", BaseURLs: []string{"https://example.com/baseos"}},
+					},
+				},
+			},
+			expected: map[string]depsolvednf.DepsolveResult{
+				"os": {
+					Packages: rpmmd.PackageList{
+						{Name: "bash", Version: "5.0", Arch: "x86_64"},
+						{Name: "coreutils", Version: "8.32", Arch: "x86_64"},
+					},
+					Repos: []rpmmd.RepoConfig{
+						{Id: "baseos", BaseURLs: []string{"https://example.com/baseos"}},
+					},
+				},
+			},
+		},
+		{
+			name: "single-pipeline-with-sbom",
+			input: DepsolveJobResult{
+				PackageSpecs: map[string]DepsolvedPackageList{
+					"os": {{Name: "bash", Version: "5.0", Arch: "x86_64"}},
+				},
+				RepoConfigs: map[string][]DepsolvedRepoConfig{
+					"os": {{Id: "baseos", BaseURLs: []string{"https://example.com/baseos"}}},
+				},
+				SbomDocs: map[string]SbomDoc{
+					"os": {DocType: sbom.StandardTypeSpdx, Document: json.RawMessage(`{"spdxVersion":"SPDX-2.3"}`)},
+				},
+			},
+			expected: map[string]depsolvednf.DepsolveResult{
+				"os": {
+					Packages: rpmmd.PackageList{{Name: "bash", Version: "5.0", Arch: "x86_64"}},
+					Repos:    []rpmmd.RepoConfig{{Id: "baseos", BaseURLs: []string{"https://example.com/baseos"}}},
+					SBOM:     &sbom.Document{DocType: sbom.StandardTypeSpdx, Document: json.RawMessage(`{"spdxVersion":"SPDX-2.3"}`)},
+				},
+			},
+		},
+		{
+			name: "single-pipeline-with-modules",
+			input: DepsolveJobResult{
+				PackageSpecs: map[string]DepsolvedPackageList{
+					"os": {{Name: "nodejs", Version: "18.0", Arch: "x86_64"}},
+				},
+				RepoConfigs: map[string][]DepsolvedRepoConfig{
+					"os": {{Id: "appstream", BaseURLs: []string{"https://example.com/appstream"}}},
+				},
+				Modules: map[string][]DepsolvedModuleSpec{
+					"os": {
+						{
+							ModuleConfigFile: DepsolvedModuleConfigFile{
+								Path: "/etc/dnf/modules.d/nodejs.module",
+								Data: DepsolvedModuleConfigData{
+									Name:   "nodejs",
+									Stream: "18",
+									State:  "enabled",
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: map[string]depsolvednf.DepsolveResult{
+				"os": {
+					Packages: rpmmd.PackageList{{Name: "nodejs", Version: "18.0", Arch: "x86_64"}},
+					Repos:    []rpmmd.RepoConfig{{Id: "appstream", BaseURLs: []string{"https://example.com/appstream"}}},
+					Modules: []rpmmd.ModuleSpec{
+						{
+							ModuleConfigFile: rpmmd.ModuleConfigFile{
+								Path: "/etc/dnf/modules.d/nodejs.module",
+								Data: rpmmd.ModuleConfigData{
+									Name:   "nodejs",
+									Stream: "18",
+									State:  "enabled",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "single-pipeline-with-transactions",
+			input: DepsolveJobResult{
+				PackageSpecs: map[string]DepsolvedPackageList{
+					"os": {
+						{Name: "bash", Version: "5.0", Arch: "x86_64"},
+						{Name: "vim", Version: "8.2", Arch: "x86_64"},
+					},
+				},
+				Transactions: map[string][]DepsolvedPackageList{
+					"os": {
+						{{Name: "bash", Version: "5.0", Arch: "x86_64"}},
+						{{Name: "vim", Version: "8.2", Arch: "x86_64"}},
+					},
+				},
+				RepoConfigs: map[string][]DepsolvedRepoConfig{
+					"os": {{Id: "baseos", BaseURLs: []string{"https://example.com/baseos"}}},
+				},
+			},
+			expected: map[string]depsolvednf.DepsolveResult{
+				"os": {
+					Packages: rpmmd.PackageList{
+						{Name: "bash", Version: "5.0", Arch: "x86_64"},
+						{Name: "vim", Version: "8.2", Arch: "x86_64"},
+					},
+					Transactions: []rpmmd.PackageList{
+						{{Name: "bash", Version: "5.0", Arch: "x86_64"}},
+						{{Name: "vim", Version: "8.2", Arch: "x86_64"}},
+					},
+					Repos: []rpmmd.RepoConfig{{Id: "baseos", BaseURLs: []string{"https://example.com/baseos"}}},
+				},
+			},
+		},
+		{
+			name: "single-pipeline-with-solver",
+			input: DepsolveJobResult{
+				PackageSpecs: map[string]DepsolvedPackageList{
+					"os": {{Name: "bash", Version: "5.0", Arch: "x86_64"}},
+				},
+				RepoConfigs: map[string][]DepsolvedRepoConfig{
+					"os": {{Id: "baseos", BaseURLs: []string{"https://example.com/baseos"}}},
+				},
+				Solver: "dnf5",
+			},
+			expected: map[string]depsolvednf.DepsolveResult{
+				"os": {
+					Packages: rpmmd.PackageList{{Name: "bash", Version: "5.0", Arch: "x86_64"}},
+					Repos:    []rpmmd.RepoConfig{{Id: "baseos", BaseURLs: []string{"https://example.com/baseos"}}},
+					Solver:   "dnf5",
+				},
+			},
+		},
+		{
+			name: "multiple-pipelines",
+			input: DepsolveJobResult{
+				PackageSpecs: map[string]DepsolvedPackageList{
+					"build": {{Name: "gcc", Version: "11.0", Arch: "x86_64"}},
+					"os":    {{Name: "bash", Version: "5.0", Arch: "x86_64"}},
+				},
+				RepoConfigs: map[string][]DepsolvedRepoConfig{
+					"build": {{Id: "baseos", BaseURLs: []string{"https://example.com/baseos"}}},
+					"os":    {{Id: "appstream", BaseURLs: []string{"https://example.com/appstream"}}},
+				},
+			},
+			expected: map[string]depsolvednf.DepsolveResult{
+				"build": {
+					Packages: rpmmd.PackageList{{Name: "gcc", Version: "11.0", Arch: "x86_64"}},
+					Repos:    []rpmmd.RepoConfig{{Id: "baseos", BaseURLs: []string{"https://example.com/baseos"}}},
+				},
+				"os": {
+					Packages: rpmmd.PackageList{{Name: "bash", Version: "5.0", Arch: "x86_64"}},
+					Repos:    []rpmmd.RepoConfig{{Id: "appstream", BaseURLs: []string{"https://example.com/appstream"}}},
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tc.input.ToDepsolvednfResult()
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestDepsolveJobResultJSONRoundtrip(t *testing.T) {
+	testCases := []struct {
+		name   string
+		result DepsolveJobResult
+	}{
+		{
+			name:   "empty",
+			result: DepsolveJobResult{},
+		},
+		{
+			name: "minimal",
+			result: DepsolveJobResult{
+				PackageSpecs: map[string]DepsolvedPackageList{
+					"os": {{Name: "bash", Version: "5.0", Arch: "x86_64"}},
+				},
+				RepoConfigs: map[string][]DepsolvedRepoConfig{
+					"os": {{Id: "baseos", BaseURLs: []string{"https://example.com/baseos"}}},
+				},
+			},
+		},
+		{
+			name: "full",
+			result: DepsolveJobResult{
+				Transactions: map[string][]DepsolvedPackageList{
+					"build": {
+						{{Name: "gcc", Version: "11.0", Arch: "x86_64"}},
+					},
+					"os": {
+						{{Name: "bash", Version: "5.0", Arch: "x86_64"}},
+						{{Name: "vim", Version: "8.2", Arch: "x86_64"}},
+					},
+				},
+				PackageSpecs: map[string]DepsolvedPackageList{
+					"build": {{Name: "gcc", Version: "11.0", Arch: "x86_64"}},
+					"os": {
+						{Name: "bash", Version: "5.0", Arch: "x86_64"},
+						{Name: "vim", Version: "8.2", Arch: "x86_64"},
+					},
+				},
+				RepoConfigs: map[string][]DepsolvedRepoConfig{
+					"build": {{Id: "baseos", BaseURLs: []string{"https://example.com/baseos"}}},
+					"os": {
+						{Id: "baseos", BaseURLs: []string{"https://example.com/baseos"}},
+						{Id: "appstream", BaseURLs: []string{"https://example.com/appstream"}},
+					},
+				},
+				Modules: map[string][]DepsolvedModuleSpec{
+					"os": {
+						{
+							ModuleConfigFile: DepsolvedModuleConfigFile{
+								Path: "/etc/dnf/modules.d/nodejs.module",
+								Data: DepsolvedModuleConfigData{
+									Name:     "nodejs",
+									Stream:   "18",
+									Profiles: []string{"default"},
+									State:    "enabled",
+								},
+							},
+							FailsafeFile: DepsolvedModuleFailsafeFile{
+								Path: "/etc/dnf/modules.d/nodejs.failsafe",
+								Data: "nodejs:18",
+							},
+						},
+					},
+				},
+				SbomDocs: map[string]SbomDoc{
+					"os": {
+						DocType:  sbom.StandardTypeSpdx,
+						Document: json.RawMessage(`{"spdxVersion":"SPDX-2.3","name":"os"}`),
+					},
+				},
+				Solver: "dnf5",
+				JobResult: JobResult{
+					JobError: clienterrors.New(clienterrors.ErrorDNFDepsolveError, "test error", "details"),
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(tc.result)
+			require.NoError(t, err)
+
+			var result DepsolveJobResult
+			err = json.Unmarshal(data, &result)
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.result, result)
+		})
+	}
+}
+
+func TestDepsolvedModuleSpecJSONRoundtrip(t *testing.T) {
+	testCases := []struct {
+		name   string
+		module DepsolvedModuleSpec
+	}{
+		{
+			name:   "empty",
+			module: DepsolvedModuleSpec{},
+		},
+		{
+			name: "full",
+			module: DepsolvedModuleSpec{
+				ModuleConfigFile: DepsolvedModuleConfigFile{
+					Path: "/etc/dnf/modules.d/nodejs.module",
+					Data: DepsolvedModuleConfigData{
+						Name:     "nodejs",
+						Stream:   "18",
+						Profiles: []string{"default", "development"},
+						State:    "enabled",
+					},
+				},
+				FailsafeFile: DepsolvedModuleFailsafeFile{
+					Path: "/etc/dnf/modules.d/nodejs.failsafe",
+					Data: "nodejs:18",
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(tc.module)
+			require.NoError(t, err)
+
+			var result DepsolvedModuleSpec
+			err = json.Unmarshal(data, &result)
+			require.NoError(t, err)
+
+			assert.EqualValues(t, tc.module, result)
+		})
+	}
+}
+
+func TestDepsolvedModuleSpecRPMMDConversion(t *testing.T) {
+	testCases := []struct {
+		name   string
+		module rpmmd.ModuleSpec
+	}{
+		{
+			name:   "empty",
+			module: rpmmd.ModuleSpec{},
+		},
+		{
+			name: "typical",
+			module: rpmmd.ModuleSpec{
+				ModuleConfigFile: rpmmd.ModuleConfigFile{
+					Path: "/etc/dnf/modules.d/nodejs.module",
+					Data: rpmmd.ModuleConfigData{
+						Name:     "nodejs",
+						Stream:   "18",
+						Profiles: []string{"default"},
+						State:    "enabled",
+					},
+				},
+				FailsafeFile: rpmmd.ModuleFailsafeFile{
+					Path: "/etc/dnf/modules.d/nodejs.failsafe",
+					Data: "nodejs:18",
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dto := DepsolvedModuleSpecFromRPMMD(tc.module)
+			result := dto.ToRPMMD()
+			assert.EqualValues(t, tc.module, result)
 		})
 	}
 }

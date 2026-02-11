@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/osbuild/blueprint/pkg/blueprint"
+	"github.com/osbuild/images/pkg/depsolvednf"
 	"github.com/osbuild/images/pkg/manifest"
 	"github.com/osbuild/images/pkg/osbuild"
 	"github.com/osbuild/images/pkg/rpmmd"
@@ -271,6 +272,9 @@ type DepsolvedPackageRelDep struct {
 type DepsolvedPackageRelDepList []DepsolvedPackageRelDep
 
 func (d DepsolvedPackageRelDepList) ToRPMMDList() rpmmd.RelDepList {
+	if d == nil {
+		return nil
+	}
 	results := make(rpmmd.RelDepList, len(d))
 	for i, relDep := range d {
 		results[i] = rpmmd.RelDep(relDep)
@@ -279,6 +283,9 @@ func (d DepsolvedPackageRelDepList) ToRPMMDList() rpmmd.RelDepList {
 }
 
 func DepsolvedPackageRelDepListFromRPMMDList(relDeps rpmmd.RelDepList) DepsolvedPackageRelDepList {
+	if relDeps == nil {
+		return nil
+	}
 	results := make(DepsolvedPackageRelDepList, len(relDeps))
 	for i, relDep := range relDeps {
 		results[i] = DepsolvedPackageRelDep(relDep)
@@ -514,6 +521,9 @@ func (d DepsolvedPackage) ToRPMMD() rpmmd.Package {
 type DepsolvedPackageList []DepsolvedPackage
 
 func (d DepsolvedPackageList) ToRPMMDList() rpmmd.PackageList {
+	if d == nil {
+		return nil
+	}
 	results := make(rpmmd.PackageList, len(d))
 	for i, pkg := range d {
 		results[i] = pkg.ToRPMMD()
@@ -578,6 +588,9 @@ func DepsolvedPackageFromRPMMD(pkg rpmmd.Package) DepsolvedPackage {
 }
 
 func DepsolvedPackageListFromRPMMDList(pkgs rpmmd.PackageList) DepsolvedPackageList {
+	if pkgs == nil {
+		return nil
+	}
 	results := make(DepsolvedPackageList, len(pkgs))
 	for i, pkg := range pkgs {
 		results[i] = DepsolvedPackageFromRPMMD(pkg)
@@ -585,11 +598,213 @@ func DepsolvedPackageListFromRPMMDList(pkgs rpmmd.PackageList) DepsolvedPackageL
 	return results
 }
 
+// DepsolvedTransactionsFromRPMMD converts a slice of rpmmd.PackageList (transactions)
+// to a slice of DepsolvedPackageList.
+func DepsolvedTransactionsFromRPMMD(transactions []rpmmd.PackageList) []DepsolvedPackageList {
+	if transactions == nil {
+		return nil
+	}
+	results := make([]DepsolvedPackageList, len(transactions))
+	for i, pkgs := range transactions {
+		results[i] = DepsolvedPackageListFromRPMMDList(pkgs)
+	}
+	return results
+}
+
+// DepsolvedTransactionsToRPMMD converts a slice of DepsolvedPackageList
+// to a slice of rpmmd.PackageList (transactions).
+func DepsolvedTransactionsToRPMMD(transactions []DepsolvedPackageList) []rpmmd.PackageList {
+	if transactions == nil {
+		return nil
+	}
+	results := make([]rpmmd.PackageList, len(transactions))
+	for i, pkgs := range transactions {
+		results[i] = pkgs.ToRPMMDList()
+	}
+	return results
+}
+
+// DepsolvedRepoConfig is the DTO for rpmmd.RepoConfig.
+type DepsolvedRepoConfig struct {
+	Id             string   `json:"id,omitempty"`
+	Name           string   `json:"name,omitempty"`
+	BaseURLs       []string `json:"baseurls,omitempty"`
+	Metalink       string   `json:"metalink,omitempty"`
+	MirrorList     string   `json:"mirrorlist,omitempty"`
+	GPGKeys        []string `json:"gpgkeys,omitempty"`
+	CheckGPG       *bool    `json:"check_gpg,omitempty"`
+	CheckRepoGPG   *bool    `json:"check_repo_gpg,omitempty"`
+	Priority       *int     `json:"priority,omitempty"`
+	IgnoreSSL      *bool    `json:"ignore_ssl,omitempty"`
+	MetadataExpire string   `json:"metadata_expire,omitempty"`
+	ModuleHotfixes *bool    `json:"module_hotfixes,omitempty"`
+	RHSM           bool     `json:"rhsm,omitempty"`
+	Enabled        *bool    `json:"enabled,omitempty"`
+	ImageTypeTags  []string `json:"image_type_tags,omitempty"`
+	PackageSets    []string `json:"package_sets,omitempty"`
+
+	SSLCACert     string `json:"sslcacert,omitempty"`
+	SSLClientKey  string `json:"sslclientkey,omitempty"`
+	SSLClientCert string `json:"sslclientcert,omitempty"`
+}
+
+func (d DepsolvedRepoConfig) ToRPMMD() rpmmd.RepoConfig {
+	return rpmmd.RepoConfig(d)
+}
+
+func DepsolvedRepoConfigFromRPMMD(cfg rpmmd.RepoConfig) DepsolvedRepoConfig {
+	return DepsolvedRepoConfig(cfg)
+}
+
+func DepsolvedRepoConfigListFromRPMMDList(cfgs []rpmmd.RepoConfig) []DepsolvedRepoConfig {
+	if cfgs == nil {
+		return nil
+	}
+	results := make([]DepsolvedRepoConfig, len(cfgs))
+	for i, cfg := range cfgs {
+		results[i] = DepsolvedRepoConfigFromRPMMD(cfg)
+	}
+	return results
+}
+
+func DepsolvedRepoConfigListToRPMMDList(cfgs []DepsolvedRepoConfig) []rpmmd.RepoConfig {
+	if cfgs == nil {
+		return nil
+	}
+	results := make([]rpmmd.RepoConfig, len(cfgs))
+	for i, cfg := range cfgs {
+		results[i] = cfg.ToRPMMD()
+	}
+	return results
+}
+
+// DepsolvedModuleConfigData is the DTO for rpmmd.ModuleConfigData.
+type DepsolvedModuleConfigData struct {
+	Name     string   `json:"name"`
+	Stream   string   `json:"stream"`
+	Profiles []string `json:"profiles"`
+	State    string   `json:"state"`
+}
+
+// DepsolvedModuleConfigFile is the DTO for rpmmd.ModuleConfigFile.
+type DepsolvedModuleConfigFile struct {
+	Path string                    `json:"path"`
+	Data DepsolvedModuleConfigData `json:"data"`
+}
+
+// DepsolvedModuleFailsafeFile is the DTO for rpmmd.ModuleFailsafeFile.
+type DepsolvedModuleFailsafeFile struct {
+	Path string `json:"path"`
+	Data string `json:"data"`
+}
+
+// DepsolvedModuleSpec is the DTO for rpmmd.ModuleSpec.
+type DepsolvedModuleSpec struct {
+	ModuleConfigFile DepsolvedModuleConfigFile   `json:"module-file"`
+	FailsafeFile     DepsolvedModuleFailsafeFile `json:"failsafe-file"`
+}
+
+func (d DepsolvedModuleSpec) ToRPMMD() rpmmd.ModuleSpec {
+	return rpmmd.ModuleSpec{
+		ModuleConfigFile: rpmmd.ModuleConfigFile{
+			Path: d.ModuleConfigFile.Path,
+			Data: rpmmd.ModuleConfigData(d.ModuleConfigFile.Data),
+		},
+		FailsafeFile: rpmmd.ModuleFailsafeFile(d.FailsafeFile),
+	}
+}
+
+func DepsolvedModuleSpecFromRPMMD(m rpmmd.ModuleSpec) DepsolvedModuleSpec {
+	return DepsolvedModuleSpec{
+		ModuleConfigFile: DepsolvedModuleConfigFile{
+			Path: m.ModuleConfigFile.Path,
+			Data: DepsolvedModuleConfigData(m.ModuleConfigFile.Data),
+		},
+		FailsafeFile: DepsolvedModuleFailsafeFile(m.FailsafeFile),
+	}
+}
+
+func DepsolvedModuleSpecListFromRPMMDList(modules []rpmmd.ModuleSpec) []DepsolvedModuleSpec {
+	if modules == nil {
+		return nil
+	}
+	results := make([]DepsolvedModuleSpec, len(modules))
+	for i, m := range modules {
+		results[i] = DepsolvedModuleSpecFromRPMMD(m)
+	}
+	return results
+}
+
+func DepsolvedModuleSpecListToRPMMDList(modules []DepsolvedModuleSpec) []rpmmd.ModuleSpec {
+	if modules == nil {
+		return nil
+	}
+	results := make([]rpmmd.ModuleSpec, len(modules))
+	for i, m := range modules {
+		results[i] = m.ToRPMMD()
+	}
+	return results
+}
+
 type DepsolveJobResult struct {
-	PackageSpecs map[string]DepsolvedPackageList `json:"package_specs"`
-	SbomDocs     map[string]SbomDoc              `json:"sbom_docs,omitempty"`
-	RepoConfigs  map[string][]rpmmd.RepoConfig   `json:"repo_configs"`
+	Transactions map[string][]DepsolvedPackageList `json:"transactions"`
+
+	// TODO: PackageSpecs is kept for backward compatibility with workers that
+	// don't yet populate Transactions. Once all workers are updated to use the
+	// V2 depsolve API and populate Transactions, PackageSpecs should be removed
+	// and consumers should use Transactions instead.
+	PackageSpecs map[string]DepsolvedPackageList  `json:"package_specs"`
+	RepoConfigs  map[string][]DepsolvedRepoConfig `json:"repo_configs"`
+	Modules      map[string][]DepsolvedModuleSpec `json:"modules,omitempty"`
+	SbomDocs     map[string]SbomDoc               `json:"sbom_docs,omitempty"`
+
+	// Solver identifies which solver produced the result (e.g., "dnf5", "dnf").
+	// This is a single value rather than a per-pipeline map because all package
+	// sets in a depsolve job are processed by the same solver instance.
+	Solver string `json:"solver,omitempty"`
+
 	JobResult
+}
+
+// ToDepsolvednfResult converts the DepsolveJobResult to a map of
+// depsolvednf.DepsolveResult keyed by pipeline name. This is used
+// to pass the depsolve results to manifest serialization.
+func (d *DepsolveJobResult) ToDepsolvednfResult() map[string]depsolvednf.DepsolveResult {
+	results := make(map[string]depsolvednf.DepsolveResult, len(d.PackageSpecs))
+
+	// NOTE: PackageSpecs and RepoConfigs are always populated together by the
+	// depsolve job for the same pipeline names. Transactions, Modules, and
+	// SbomDocs are optional. We iterate over PackageSpecs as the primary map
+	// and look up the corresponding entries in the others.
+	//
+	// TODO: Once Transactions becomes mandatory and PackageSpecs is removed,
+	// switch to iterating over Transactions as the primary map.
+	for name, pkgs := range d.PackageSpecs {
+		result := depsolvednf.DepsolveResult{
+			Packages: pkgs.ToRPMMDList(),
+			Repos:    DepsolvedRepoConfigListToRPMMDList(d.RepoConfigs[name]),
+			Solver:   d.Solver,
+		}
+
+		if transactions, ok := d.Transactions[name]; ok {
+			result.Transactions = DepsolvedTransactionsToRPMMD(transactions)
+		}
+
+		if sbomDoc, ok := d.SbomDocs[name]; ok {
+			result.SBOM = &sbom.Document{
+				DocType:  sbomDoc.DocType,
+				Document: sbomDoc.Document,
+			}
+		}
+
+		if modules, ok := d.Modules[name]; ok {
+			result.Modules = DepsolvedModuleSpecListToRPMMDList(modules)
+		}
+
+		results[name] = result
+	}
+
+	return results
 }
 
 // SearchPackagesJob defines the parameters for a dnf metadata search

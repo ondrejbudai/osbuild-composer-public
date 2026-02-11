@@ -55,38 +55,65 @@ type DepsolveJobImpl struct {
 	RepositoryMTLSConfig *RepositoryMTLSConfig
 }
 
-// depsolve each package set in the pacakgeSets map.  The repositories defined
+// depsolve each package set in the packageSets map. The repositories defined
 // in repos are used for all package sets, whereas the repositories in
 // packageSetsRepos are only used for the package set with the same name
 // (matching map keys).
-func (impl *DepsolveJobImpl) depsolve(packageSets map[string][]rpmmd.PackageSet, modulePlatformID, arch, releasever string, sbomType sbom.StandardType) (map[string]worker.DepsolvedPackageList, map[string][]rpmmd.RepoConfig, map[string]worker.SbomDoc, error) {
+//
+// On error, returns a partial result with JobError set.
+func (impl *DepsolveJobImpl) depsolve(packageSets map[string][]rpmmd.PackageSet, modulePlatformID, arch, releasever string, sbomType sbom.StandardType, logWithId *logrus.Entry) *worker.DepsolveJobResult {
+	result := &worker.DepsolveJobResult{}
+
 	solver := impl.Solver.NewWithConfig(modulePlatformID, releasever, arch, "")
 	if impl.RepositoryMTLSConfig != nil && impl.RepositoryMTLSConfig.Proxy != nil {
 		err := solver.SetProxy(impl.RepositoryMTLSConfig.Proxy.String())
 		if err != nil {
-			return nil, nil, nil, err
+			result.JobError = workerClientErrorFrom(err, logWithId)
+			return result
 		}
 	}
 
 	depsolvedSets := make(map[string]worker.DepsolvedPackageList)
-	repoConfigs := make(map[string][]rpmmd.RepoConfig)
+	transactions := make(map[string][]worker.DepsolvedPackageList)
+	repoConfigs := make(map[string][]worker.DepsolvedRepoConfig)
+	modules := make(map[string][]worker.DepsolvedModuleSpec)
+	var solverName string
 	var sbomDocs map[string]worker.SbomDoc
 	if sbomType != sbom.StandardTypeNone {
 		sbomDocs = make(map[string]worker.SbomDoc)
 	}
+
 	for name, pkgSet := range packageSets {
 		res, err := solver.Depsolve(pkgSet, sbomType)
 		if err != nil {
-			return nil, nil, nil, err
+			result.JobError = workerClientErrorFrom(err, logWithId)
+			return result
 		}
+		if solverName == "" {
+			solverName = res.Solver
+		}
+		// TODO: Once osbuild/images removes Packages from DepsolveResult,
+		// remove depsolvedSets and use only transactions. PackageSpecs is kept
+		// for backward compatibility with older osbuild-composer servers.
 		depsolvedSets[name] = worker.DepsolvedPackageListFromRPMMDList(res.Packages)
-		repoConfigs[name] = res.Repos
+		transactions[name] = worker.DepsolvedTransactionsFromRPMMD(res.Transactions)
+		repoConfigs[name] = worker.DepsolvedRepoConfigListFromRPMMDList(res.Repos)
+		if len(res.Modules) > 0 {
+			modules[name] = worker.DepsolvedModuleSpecListFromRPMMDList(res.Modules)
+		}
 		if sbomType != sbom.StandardTypeNone {
 			sbomDocs[name] = worker.SbomDoc(*res.SBOM)
 		}
 	}
 
-	return depsolvedSets, repoConfigs, sbomDocs, nil
+	result.PackageSpecs = depsolvedSets
+	result.Transactions = transactions
+	result.RepoConfigs = repoConfigs
+	result.SbomDocs = sbomDocs
+	result.Modules = modules
+	result.Solver = solverName
+
+	return result
 }
 
 func workerClientErrorFrom(err error, logWithId *logrus.Entry) *clienterrors.Error {
@@ -162,10 +189,9 @@ func (impl *DepsolveJobImpl) Run(job worker.Job) error {
 		}
 	}
 
-	result.PackageSpecs, result.RepoConfigs, result.SbomDocs, err = impl.depsolve(args.PackageSets, args.ModulePlatformID, args.Arch, args.Releasever, args.SbomType)
-	if err != nil {
-		result.JobError = workerClientErrorFrom(err, logWithId)
-	}
+	depsolveResult := impl.depsolve(args.PackageSets, args.ModulePlatformID, args.Arch, args.Releasever, args.SbomType, logWithId)
+	result = *depsolveResult
+
 	if err := impl.Solver.CleanCache(); err != nil {
 		// log and ignore
 		logWithId.Errorf("Error during rpm repo cache cleanup: %s", err.Error())
