@@ -271,7 +271,7 @@ github.com/aws/aws-sdk-go-v2/internal/v4a/internal/v4
 github.com/aws/aws-sdk-go-v2/service/autoscaling
 github.com/aws/aws-sdk-go-v2/service/autoscaling/internal/endpoints
 github.com/aws/aws-sdk-go-v2/service/autoscaling/types
-# github.com/aws/aws-sdk-go-v2/service/ec2 v1.285.0
+# github.com/aws/aws-sdk-go-v2/service/ec2 v1.289.0
 ## explicit; go 1.23
 github.com/aws/aws-sdk-go-v2/service/ec2
 github.com/aws/aws-sdk-go-v2/service/ec2/internal/endpoints
@@ -971,7 +971,7 @@ github.com/oracle/oci-go-sdk/v54/workrequests
 ## explicit; go 1.23.9
 github.com/osbuild/blueprint/internal/common
 github.com/osbuild/blueprint/pkg/blueprint
-# github.com/osbuild/images v0.238.0
+# github.com/osbuild/images v0.239.0
 ## explicit; go 1.23.9
 github.com/osbuild/images/data/dependencies
 github.com/osbuild/images/data/distrodefs

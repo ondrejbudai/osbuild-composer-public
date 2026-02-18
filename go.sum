@@ -102,8 +102,8 @@ github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.6 h1:R0tNFJqfjHL3900cqhXuwQ+1K4G0
 github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.6/go.mod h1:y/7sDdu+aJvPtGXr4xYosdpq9a6T9Z0jkXfugmti0rI=
 github.com/aws/aws-sdk-go-v2/service/autoscaling v1.64.0 h1:s92jPptCu97RNwU1yF3jD4ahLZrQ0QkUIvrn464rQ2A=
 github.com/aws/aws-sdk-go-v2/service/autoscaling v1.64.0/go.mod h1:8O5Pj92iNpfw/Fa7WdHbn6YiEjDoVdutz+9PGRNoP3Y=
-github.com/aws/aws-sdk-go-v2/service/ec2 v1.285.0 h1:cRZQsqCy59DSJmvmUYzi9K+dutysXzfx6F+fkcIHtOk=
-github.com/aws/aws-sdk-go-v2/service/ec2 v1.285.0/go.mod h1:Uy+C+Sc58jozdoL1McQr8bDsEvNFx+/nBY+vpO1HVUY=
+github.com/aws/aws-sdk-go-v2/service/ec2 v1.289.0 h1:Ftj1M28RtAjgHpycBeQaFhfGx+aQ/swYEz+tBtIh9nE=
+github.com/aws/aws-sdk-go-v2/service/ec2 v1.289.0/go.mod h1:Uy+C+Sc58jozdoL1McQr8bDsEvNFx+/nBY+vpO1HVUY=
 github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.4 h1:0ryTNEdJbzUCEWkVXEXoqlXV72J5keC1GvILMOuD00E=
 github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.4/go.mod h1:HQ4qwNZh32C3CBeO6iJLQlgtMzqeG17ziAA/3KDJFow=
 github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.8.6 h1:hncKj/4gR+TPauZgTAsxOxNcvBayhUlYZ6LO/BYiQ30=
@@ -522,8 +522,8 @@ github.com/oracle/oci-go-sdk/v54 v54.0.0 h1:CDLjeSejv2aDpElAJrhKpi6zvT/zhZCZuXch
 github.com/oracle/oci-go-sdk/v54 v54.0.0/go.mod h1:+t+yvcFGVp+3ZnztnyxqXfQDsMlq8U25faBLa+mqCMc=
 github.com/osbuild/blueprint v1.23.0 h1:HGMuRKpYg2xBy1QnAQDaIM6xnmzXh4QBrjic86C6Xr8=
 github.com/osbuild/blueprint v1.23.0/go.mod h1:HPlJzkEl7q5g8hzaGksUk7ifFAy9QFw9LmzhuFOAVm4=
-github.com/osbuild/images v0.238.0 h1:qJnMZOgtuoSJrXdSzyqDm+h5qw+cKK+oJIQFEG7W7LU=
-github.com/osbuild/images v0.238.0/go.mod h1:3/nKlYk9W8bsgrb8svP0j4q8/LlqY4F12eAqUgLLo5c=
+github.com/osbuild/images v0.239.0 h1:44+LBGKXaGM9YObQfvVBzLPxUyz+GscStwI4mHfdWHc=
+github.com/osbuild/images v0.239.0/go.mod h1:3/nKlYk9W8bsgrb8svP0j4q8/LlqY4F12eAqUgLLo5c=
 github.com/osbuild/osbuild-composer/pkg/splunk_logger v0.0.0-20240814102216-0239db53236d h1:r9BFPDv0uuA9k1947Jybcxs36c/pTywWS1gjeizvtcQ=
 github.com/osbuild/osbuild-composer/pkg/splunk_logger v0.0.0-20240814102216-0239db53236d/go.mod h1:zR1iu/hOuf+OQNJlk70tju9IqzzM4ycq0ectkFBm94U=
 github.com/perimeterx/marshmallow v1.1.5 h1:a2LALqQ1BlHM8PZblsDdidgv1mWi1DgC2UmX50IvK2s=
