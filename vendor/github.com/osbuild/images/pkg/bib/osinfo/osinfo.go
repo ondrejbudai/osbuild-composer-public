@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -19,8 +20,12 @@ import (
 	"github.com/osbuild/images/pkg/osbuild"
 )
 
-// XXX: use image-builder instead?
-const bibPathPrefix = "usr/lib/bootc-image-builder"
+// paths we check for configuration files, first one to match is the
+// the one used.
+var searchPaths = [2]string{
+	"usr/lib/image-builder/bootc",
+	"usr/lib/bootc-image-builder",
+}
 
 type OSRelease struct {
 	PlatformID string
@@ -58,10 +63,30 @@ type Info struct {
 	SELinuxPolicy      string    `yaml:"selinux_policy"`
 	ImageCustomization *blueprint.Customizations
 	KernelInfo         *KernelInfo `yaml:"kernel_info"`
+	InitrdModules      []string    `yaml:"initrd_modules"`
 	ISOInfo            ISOInfo     `yaml:"iso_info"`
 
 	MountConfiguration *osbuild.MountConfiguration
 	PartitionTable     *disk.PartitionTable
+}
+
+// HasModules returns true if all of the requested modules are in the InitrdModules list
+// It returns true if the requested module list is empty
+// It returns an error if the InitrdModules list is empty, and at least one
+// module has been requested.
+func (info *Info) HasModules(modules []string) (bool, error) {
+	if len(modules) == 0 {
+		return true, nil
+	}
+	if len(info.InitrdModules) == 0 {
+		return false, fmt.Errorf("The initrd module list is empty")
+	}
+	for _, m := range modules {
+		if !slices.Contains(info.InitrdModules, m) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func validateOSRelease(osrelease map[string]string) error {
@@ -137,7 +162,11 @@ func readSelinuxPolicy(root string) (string, error) {
 }
 
 func readImageCustomization(root string) (*blueprint.Customizations, error) {
-	prefix := path.Join(root, bibPathPrefix)
+	// note that we only look at the 'old' search path here, we do want to
+	// look in the new path as well but i'd like to only support the actual
+	// blueprint format there instead of buildconfig as well
+	prefix := path.Join(root, searchPaths[1])
+
 	config, err := blueprintload.Load(path.Join(prefix, "config.json"))
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
@@ -162,22 +191,26 @@ type diskYAML struct {
 }
 
 func readDiskYaml(root string) (*diskYAML, error) {
-	p := path.Join(root, bibPathPrefix, "disk.yaml")
-	var disk diskYAML
-	f, err := os.Open(p)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
+	for _, prefixPath := range searchPaths {
+		var disk diskYAML
+		p := path.Join(root, prefixPath, "disk.yaml")
+		f, err := os.Open(p)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("cannot load disk definitions from %q: %w", p, err)
 		}
-		return nil, fmt.Errorf("cannot load disk definitions from %q: %w", p, err)
-	}
-	defer f.Close()
+		defer f.Close()
 
-	if err := yaml.NewDecoder(f).Decode(&disk); err != nil {
-		return nil, fmt.Errorf("cannot parse disk definitions from %q: %w", p, err)
+		if err := yaml.NewDecoder(f).Decode(&disk); err != nil {
+			return nil, fmt.Errorf("cannot parse disk definitions from %q: %w", p, err)
+		}
+
+		return &disk, nil
 	}
 
-	return &disk, nil
+	return nil, nil
 }
 
 type isoYAML struct {
@@ -195,22 +228,26 @@ type isoYAML struct {
 }
 
 func readISOYaml(root string) (*isoYAML, error) {
-	p := path.Join(root, bibPathPrefix, "iso.yaml")
-	var iso isoYAML
-	f, err := os.Open(p)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
+	for _, prefixPath := range searchPaths {
+		var iso isoYAML
+		p := path.Join(root, prefixPath, "iso.yaml")
+		f, err := os.Open(p)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("cannot load iso definitions from %q: %w", p, err)
 		}
-		return nil, fmt.Errorf("cannot load iso definitions from %q: %w", p, err)
-	}
-	defer f.Close()
+		defer f.Close()
 
-	if err := yaml.NewDecoder(f).Decode(&iso); err != nil {
-		return nil, fmt.Errorf("cannot parse iso definitions from %q: %w", p, err)
+		if err := yaml.NewDecoder(f).Decode(&iso); err != nil {
+			return nil, fmt.Errorf("cannot parse iso definitions from %q: %w", p, err)
+		}
+
+		return &iso, nil
 	}
 
-	return &iso, nil
+	return nil, nil
 }
 
 func readKernelInfo(root string) (*KernelInfo, error) {

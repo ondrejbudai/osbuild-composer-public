@@ -353,8 +353,8 @@ func osCustomizations(t *imageType, osPackageSet rpmmd.PackageSet, options distr
 		osc.MachineIdUninitialized = *imageConfig.MachineIdUninitialized
 	}
 
-	if imageConfig.MountUnits != nil && *imageConfig.MountUnits {
-		osc.MountConfiguration = osbuild.MOUNT_CONFIGURATION_UNITS
+	if imageConfig.MountConfiguration != nil {
+		osc.MountConfiguration = *imageConfig.MountConfiguration
 	}
 
 	osc.VersionlockPackages = imageConfig.VersionlockPackages
@@ -489,6 +489,10 @@ func isoCustomizations(t *imageType, c *blueprint.Customizations) (manifest.ISOC
 
 		if application := isoConfig.Application; application != nil {
 			isc.Application = *application
+		}
+
+		if erofsOptions := isoConfig.ErofsOptions; erofsOptions != nil {
+			isc.ErofsOptions = *erofsOptions
 		}
 	}
 
@@ -784,7 +788,11 @@ func imageInstallerImage(t *imageType,
 		img.InstallerCustomizations.KernelOptionsAppend = append(installerConfig.KickstartUnattendedExtraKernelOpts, img.InstallerCustomizations.KernelOptionsAppend...)
 	}
 
-	img.RootfsCompression = "xz" // This also triggers using the bcj filter
+	if img.ISOCustomizations.RootfsType == manifest.ErofsRootfs {
+		img.RootfsCompression = img.ISOCustomizations.ErofsOptions.Compression.Method
+	} else {
+		img.RootfsCompression = "xz"
+	}
 
 	if tweaks := t.arch.distro.GetTweaks(); tweaks != nil && tweaks.RPMKeys != nil && tweaks.RPMKeys.BinPath != "" {
 		img.InstallerCustomizations.RPMKeysBinary = tweaks.RPMKeys.BinPath
@@ -965,7 +973,12 @@ func iotInstallerImage(t *imageType,
 		img.InstallerCustomizations.EnabledAnacondaModules = append(img.InstallerCustomizations.EnabledAnacondaModules, anaconda.ModuleUsers)
 	}
 
-	img.RootfsCompression = "xz" // This also triggers using the bcj filter
+	if img.ISOCustomizations.RootfsType == manifest.ErofsRootfs {
+		img.RootfsCompression = img.ISOCustomizations.ErofsOptions.Compression.Method
+	} else {
+		img.RootfsCompression = "xz"
+	}
+
 	imgConfig := t.getDefaultImageConfig()
 	if locale := imgConfig.Locale; locale != nil {
 		img.Locale = *locale
@@ -1175,7 +1188,11 @@ func networkInstallerImage(t *imageType,
 		return nil, err
 	}
 
-	img.RootfsCompression = "xz" // This also triggers using the bcj filter
+	if img.ISOCustomizations.RootfsType == manifest.ErofsRootfs {
+		img.RootfsCompression = img.ISOCustomizations.ErofsOptions.Compression.Method
+	} else {
+		img.RootfsCompression = "xz"
+	}
 
 	if tweaks := t.arch.distro.GetTweaks(); tweaks != nil && tweaks.RPMKeys != nil && tweaks.RPMKeys.BinPath != "" {
 		img.InstallerCustomizations.RPMKeysBinary = tweaks.RPMKeys.BinPath

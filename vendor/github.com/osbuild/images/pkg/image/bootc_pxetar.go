@@ -23,10 +23,11 @@ type BootcPXEImage struct {
 	// Customizations
 	OSCustomizations manifest.OSCustomizations
 
-	// This is used by dracut when rebuilding the initrd for PXE support
+	// Kernel version from the container, used to copy it into the PXE tar tree
 	KernelVersion string
 
-	Compression string // Compression used for the tar
+	// Compression used for the tar
+	Compression string
 }
 
 func NewBootcPXEImage(platform platform.Platform, filename string, container container.SourceSpec, buildContainer container.SourceSpec) *BootcPXEImage {
@@ -107,17 +108,11 @@ func (img *BootcPXEImage) InstantiateManifestFromContainers(m *manifest.Manifest
 		rawImage.SourcePipeline = customSourcePipeline
 	}
 	rawImage.PartitionTable = img.PartitionTable
-	rawImage.Users = img.OSCustomizations.Users
-	rawImage.Groups = img.OSCustomizations.Groups
-	rawImage.Files = img.OSCustomizations.Files
-	rawImage.Directories = img.OSCustomizations.Directories
-	rawImage.KernelOptionsAppend = img.OSCustomizations.KernelOptionsAppend
-	rawImage.SELinux = img.OSCustomizations.SELinux
-	rawImage.MountConfiguration = img.OSCustomizations.MountConfiguration
-
-	// Rebuild the initramfs inside the bootc pipeline
+	rawImage.OSCustomizations = img.OSCustomizations
 	rawImage.KernelVersion = img.KernelVersion
-	rawImage.RebuildInitramfs = true
+
+	// Setup root filesystem so that dmsquash-live will boot it
+	rawImage.LiveBoot = true
 
 	// Add the rootfs pipeline which compresses the bootc/ostree filesystem and copies
 	// out the kernel, initramfs, and EFI/ files needed for PXE booting it
