@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/osbuild/images/pkg/container"
 	"github.com/osbuild/images/pkg/depsolvednf"
 	"github.com/osbuild/images/pkg/rpmmd"
 	"github.com/osbuild/images/pkg/sbom"
@@ -1413,6 +1414,339 @@ func TestDepsolvedModuleSpecRPMMDConversion(t *testing.T) {
 			dto := DepsolvedModuleSpecFromRPMMD(tc.module)
 			result := dto.ToRPMMD()
 			assert.EqualValues(t, tc.module, result)
+		})
+	}
+}
+
+func TestContainerSpecVendorSourceSpecConversion(t *testing.T) {
+	testCases := []struct {
+		name string
+		src  container.SourceSpec
+	}{
+		{name: "minimal fields", src: container.SourceSpec{}},
+		{
+			name: "all source fields, Local false",
+			src: container.SourceSpec{
+				Source:    "registry.example.com/image:latest",
+				Name:      "my-container",
+				TLSVerify: common.ToPtr(true),
+				Local:     false,
+			},
+		},
+		{
+			name: "all source fields, Local true",
+			src: container.SourceSpec{
+				Source:    "localhost/my-bootc:latest",
+				Name:      "bootc-container",
+				TLSVerify: common.ToPtr(false),
+				Local:     true,
+			},
+		},
+		{
+			name: "TLSVerify nil",
+			src: container.SourceSpec{
+				Source:    "registry.example.com/image:latest",
+				Name:      "my-container",
+				TLSVerify: nil,
+				Local:     false,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dto := ContainerSpecFromVendorSourceSpec(tc.src)
+			assert.Equal(t, tc.src, dto.ToVendorSourceSpec())
+		})
+	}
+
+	t.Run("ToVendorSourceSpec ignores resolved fields", func(t *testing.T) {
+		cs := ContainerSpec{
+			Source:     "registry.example.com/image:latest",
+			Name:       "my-container",
+			TLSVerify:  common.ToPtr(true),
+			Local:      false,
+			ImageID:    "sha256:abc123",
+			Digest:     "sha256:def456",
+			ListDigest: "sha256:ghi789",
+		}
+		assert.Equal(t, container.SourceSpec{
+			Source:    "registry.example.com/image:latest",
+			Name:      "my-container",
+			TLSVerify: common.ToPtr(true),
+			Local:     false,
+		}, cs.ToVendorSourceSpec())
+	})
+}
+
+func TestContainerSpecVendorSpecConversion(t *testing.T) {
+	testCases := []struct {
+		name string
+		spec container.Spec
+	}{
+		{name: "minimal fields", spec: container.Spec{}},
+		{
+			name: "all fields populated, LocalStorage false",
+			spec: container.Spec{
+				Source:       "registry.example.com/image",
+				LocalName:    "my-container",
+				TLSVerify:    common.ToPtr(true),
+				LocalStorage: false,
+				ImageID:      "sha256:abc123",
+				Digest:       "sha256:def456",
+				ListDigest:   "sha256:ghi789",
+			},
+		},
+		{
+			name: "all fields populated, LocalStorage true",
+			spec: container.Spec{
+				Source:       "localhost/my-bootc",
+				LocalName:    "bootc-container",
+				TLSVerify:    nil,
+				LocalStorage: true,
+				ImageID:      "sha256:abc123",
+				Digest:       "sha256:def456",
+				ListDigest:   "sha256:ghi789",
+			},
+		},
+		{
+			name: "LocalName and LocalStorage mapping",
+			spec: container.Spec{
+				Source:       "registry.example.com/image",
+				LocalName:    "custom-local-name",
+				LocalStorage: true,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dto := ContainerSpecFromVendorSpec(tc.spec)
+			assert.Equal(t, tc.spec, dto.ToVendorSpec())
+		})
+	}
+}
+
+func TestContainerSpecJSONRoundtrip(t *testing.T) {
+	testCases := []struct {
+		name string
+		spec ContainerSpec
+	}{
+		{
+			name: "minimal",
+			spec: ContainerSpec{},
+		},
+		{
+			name: "all fields, Local false",
+			spec: ContainerSpec{
+				Source:     "registry.example.com/image",
+				Name:       "my-container",
+				TLSVerify:  common.ToPtr(true),
+				Local:      false,
+				ImageID:    "sha256:abc123",
+				Digest:     "sha256:def456",
+				ListDigest: "sha256:ghi789",
+			},
+		},
+		{
+			name: "all fields, Local true",
+			spec: ContainerSpec{
+				Source:     "localhost/my-bootc",
+				Name:       "bootc-container",
+				TLSVerify:  nil,
+				Local:      true,
+				ImageID:    "sha256:abc123",
+				Digest:     "sha256:def456",
+				ListDigest: "sha256:ghi789",
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(tc.spec)
+			require.NoError(t, err)
+
+			var result ContainerSpec
+			err = json.Unmarshal(data, &result)
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.spec, result)
+		})
+	}
+}
+
+func TestContainerResolveJobMarshalJSON(t *testing.T) {
+	testCases := []struct {
+		name string
+		job  ContainerResolveJob
+		json string
+	}{
+		{
+			name: "pipeline specs only - specs derived from pipeline specs",
+			job: ContainerResolveJob{
+				Arch: "x86_64",
+				PipelineSpecs: map[string][]ContainerSpec{
+					"build": {
+						{Source: "registry.example.com/image:latest", Name: "build-container"},
+					},
+					"image": {
+						{Source: "registry.example.com/image:latest", Name: "os-container"},
+					},
+				},
+			},
+			json: `{"arch":"x86_64","pipeline_specs":{"build":[{"source":"registry.example.com/image:latest","name":"build-container","image_id":"","digest":""}],"image":[{"source":"registry.example.com/image:latest","name":"os-container","image_id":"","digest":""}]},"specs":[{"source":"registry.example.com/image:latest","name":"build-container","image_id":"","digest":""},{"source":"registry.example.com/image:latest","name":"os-container","image_id":"","digest":""}]}`,
+		},
+		{
+			name: "empty",
+			job: ContainerResolveJob{
+				Arch: "x86_64",
+			},
+			json: `{"arch":"x86_64"}`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(tc.job)
+			require.NoError(t, err)
+			assert.EqualValues(t, tc.json, string(data))
+		})
+	}
+}
+
+func TestContainerResolveJobUnmarshalJSON(t *testing.T) {
+	testCases := []struct {
+		name     string
+		json     string
+		expected ContainerResolveJob
+	}{
+		{
+			name: "pipeline specs present",
+			json: `{"arch":"x86_64","pipeline_specs":{"build":[{"source":"registry.example.com/image:latest","name":"build-container","image_id":"","digest":""}]}}`,
+			expected: ContainerResolveJob{
+				Arch: "x86_64",
+				PipelineSpecs: map[string][]ContainerSpec{
+					"build": {
+						{Source: "registry.example.com/image:latest", Name: "build-container"},
+					},
+				},
+			},
+		},
+		{
+			name: "flat specs only - old format",
+			json: `{"arch":"x86_64","specs":[{"source":"registry.example.com/image:latest","name":"test-container","image_id":"","digest":""}]}`,
+			expected: ContainerResolveJob{
+				Arch: "x86_64",
+				PipelineSpecs: map[string][]ContainerSpec{
+					"": {
+						{Source: "registry.example.com/image:latest", Name: "test-container"},
+					},
+				},
+			},
+		},
+		{
+			name: "empty",
+			json: `{"arch":"x86_64"}`,
+			expected: ContainerResolveJob{
+				Arch: "x86_64",
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var job ContainerResolveJob
+			err := json.Unmarshal([]byte(tc.json), &job)
+			require.NoError(t, err)
+			assert.EqualValues(t, tc.expected, job)
+		})
+	}
+}
+
+func TestContainerResolveJobJSONRoundtrip(t *testing.T) {
+	testCases := []struct {
+		name string
+		job  ContainerResolveJob
+	}{
+		{
+			name: "single pipeline",
+			job: ContainerResolveJob{
+				Arch: "x86_64",
+				PipelineSpecs: map[string][]ContainerSpec{
+					"image": {
+						{Source: "registry.example.com/image:latest", Name: "os-container"},
+					},
+				},
+			},
+		},
+		{
+			name: "multiple pipelines",
+			job: ContainerResolveJob{
+				Arch: "aarch64",
+				PipelineSpecs: map[string][]ContainerSpec{
+					"build": {
+						{Source: "registry.example.com/buildroot:latest", Name: "buildroot"},
+					},
+					"image": {
+						{Source: "registry.example.com/os:latest", Name: "os-content"},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(tc.job)
+			require.NoError(t, err)
+
+			var roundtripped ContainerResolveJob
+			err = json.Unmarshal(data, &roundtripped)
+			require.NoError(t, err)
+
+			assert.EqualValues(t, tc.job.Arch, roundtripped.Arch)
+			assert.EqualValues(t, tc.job.PipelineSpecs, roundtripped.PipelineSpecs)
+		})
+	}
+}
+
+func TestContainerResolveJobResultMarshalJSON(t *testing.T) {
+	testCases := []struct {
+		name   string
+		result ContainerResolveJobResult
+		json   string
+	}{
+		{
+			name: "pipeline specs populated - derives flat specs",
+			result: ContainerResolveJobResult{
+				PipelineSpecs: map[string][]ContainerSpec{
+					"build": {
+						{Source: "registry.example.com/image:latest", Name: "build-container", ImageID: "sha256:abc123", Digest: "sha256:def456"},
+					},
+					"image": {
+						{Source: "registry.example.com/image:latest", Name: "os-container", ImageID: "sha256:abc123", Digest: "sha256:def456"},
+					},
+				},
+			},
+			json: `{"pipeline_specs":{"build":[{"source":"registry.example.com/image:latest","name":"build-container","image_id":"sha256:abc123","digest":"sha256:def456"}],"image":[{"source":"registry.example.com/image:latest","name":"os-container","image_id":"sha256:abc123","digest":"sha256:def456"}]},"specs":[{"source":"registry.example.com/image:latest","name":"build-container","image_id":"sha256:abc123","digest":"sha256:def456"},{"source":"registry.example.com/image:latest","name":"os-container","image_id":"sha256:abc123","digest":"sha256:def456"}]}`,
+		},
+		{
+			name: "only flat specs populated - old worker",
+			result: ContainerResolveJobResult{
+				Specs: []ContainerSpec{
+					{Source: "registry.example.com/image:latest", Name: "test-container", ImageID: "sha256:abc123", Digest: "sha256:def456"},
+				},
+			},
+			json: `{"specs":[{"source":"registry.example.com/image:latest","name":"test-container","image_id":"sha256:abc123","digest":"sha256:def456"}]}`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(tc.result)
+			require.NoError(t, err)
+			assert.EqualValues(t, tc.json, string(data))
 		})
 	}
 }

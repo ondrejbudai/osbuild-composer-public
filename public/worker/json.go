@@ -3,11 +3,14 @@ package worker
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/osbuild/blueprint/pkg/blueprint"
+	"github.com/osbuild/images/pkg/container"
 	"github.com/osbuild/images/pkg/depsolvednf"
 	"github.com/osbuild/images/pkg/manifest"
 	"github.com/osbuild/images/pkg/osbuild"
@@ -16,7 +19,6 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker/clienterrors"
-	"golang.org/x/exp/slices"
 )
 
 //
@@ -917,21 +919,157 @@ type ContainerSpec struct {
 	Source    string `json:"source"`
 	Name      string `json:"name"`
 	TLSVerify *bool  `json:"tls-verify,omitempty"`
+	Local     bool   `json:"local,omitempty"`
 
 	ImageID    string `json:"image_id"`
 	Digest     string `json:"digest"`
 	ListDigest string `json:"list-digest,omitempty"`
 }
 
+// ContainerSpecFromVendorSourceSpec converts a vendor container.SourceSpec
+// to a worker ContainerSpec (source fields only).
+func ContainerSpecFromVendorSourceSpec(s container.SourceSpec) ContainerSpec {
+	return ContainerSpec{
+		Source:    s.Source,
+		Name:      s.Name,
+		TLSVerify: s.TLSVerify,
+		Local:     s.Local,
+	}
+}
+
+// ToVendorSourceSpec converts the source fields of a ContainerSpec back to
+// the vendor container.SourceSpec (for resolver input).
+func (cs *ContainerSpec) ToVendorSourceSpec() container.SourceSpec {
+	return container.SourceSpec{
+		Source:    cs.Source,
+		Name:      cs.Name,
+		TLSVerify: cs.TLSVerify,
+		Local:     cs.Local,
+	}
+}
+
+// ContainerSpecFromVendorSpec converts a vendor container.Spec (resolved
+// result) to a worker ContainerSpec.
+// NOTE: container.Spec uses different field names than SourceSpec:
+// - LocalName (not Name)
+// - LocalStorage (not Local)
+func ContainerSpecFromVendorSpec(s container.Spec) ContainerSpec {
+	return ContainerSpec{
+		Source:     s.Source,
+		Name:       s.LocalName,
+		TLSVerify:  s.TLSVerify,
+		Local:      s.LocalStorage,
+		ImageID:    s.ImageID,
+		Digest:     s.Digest,
+		ListDigest: s.ListDigest,
+	}
+}
+
+// ToVendorSpec converts a ContainerSpec to the vendor container.Spec
+// (for manifest serialization).
+// NOTE: container.Spec uses different field names than SourceSpec:
+// - LocalName (not Name)
+// - LocalStorage (not Local)
+func (cs *ContainerSpec) ToVendorSpec() container.Spec {
+	return container.Spec{
+		Source:       cs.Source,
+		LocalName:    cs.Name,
+		TLSVerify:    cs.TLSVerify,
+		LocalStorage: cs.Local,
+		ImageID:      cs.ImageID,
+		Digest:       cs.Digest,
+		ListDigest:   cs.ListDigest,
+	}
+}
+
 type ContainerResolveJob struct {
-	Arch  string          `json:"arch"`
-	Specs []ContainerSpec `json:"specs"`
+	Arch          string                     `json:"arch"`
+	PipelineSpecs map[string][]ContainerSpec `json:"pipeline_specs,omitempty"`
+}
+
+// MarshalJSON implements custom marshaling for ContainerResolveJob to maintain
+// backward compatibility with old workers that only read the flat "specs" field.
+//
+// When PipelineSpecs is populated, the marshaler writes both "pipeline_specs"
+// and a flattened "specs" array (pipeline names sorted for deterministic order).
+// Old workers ignore the unknown "pipeline_specs" and read "specs" as before.
+func (j ContainerResolveJob) MarshalJSON() ([]byte, error) {
+	type alias ContainerResolveJob
+	compat := struct {
+		alias
+		Specs []ContainerSpec `json:"specs,omitempty"`
+	}{
+		alias: alias(j),
+	}
+
+	// Derive flat specs from PipelineSpecs for old-worker compat.
+	if len(j.PipelineSpecs) > 0 {
+		for _, name := range slices.Sorted(maps.Keys(j.PipelineSpecs)) {
+			compat.Specs = append(compat.Specs, j.PipelineSpecs[name]...)
+		}
+	}
+
+	return json.Marshal(compat)
+}
+
+// UnmarshalJSON implements custom unmarshaling for ContainerResolveJob to handle
+// inputs from old composers that only write the flat "specs" field.
+//
+// If "pipeline_specs" is present, it is used directly. Otherwise, the flat "specs"
+// array is stored under the sentinel key "" (empty string) in PipelineSpecs so the
+// new worker can process it uniformly.
+func (j *ContainerResolveJob) UnmarshalJSON(data []byte) error {
+	type alias ContainerResolveJob
+	var compat struct {
+		alias
+		Specs []ContainerSpec `json:"specs,omitempty"`
+	}
+	if err := json.Unmarshal(data, &compat); err != nil {
+		return err
+	}
+
+	*j = ContainerResolveJob(compat.alias)
+
+	// If we got only flat specs (old composer), store them under sentinel key.
+	if len(j.PipelineSpecs) == 0 && len(compat.Specs) > 0 {
+		j.PipelineSpecs = map[string][]ContainerSpec{
+			"": compat.Specs,
+		}
+	}
+
+	return nil
 }
 
 type ContainerResolveJobResult struct {
-	Specs []ContainerSpec `json:"specs"`
+	PipelineSpecs map[string][]ContainerSpec `json:"pipeline_specs,omitempty"`
+
+	// Specs is kept for backward compatibility with older workers that don't produce pipeline-aware results.
+	// TODO (2026-03-30, thozza): remove Specs after migration of all infrastructure.
+	// Deprecated: Use PipelineSpecs instead. Will be removed after migration.
+	Specs []ContainerSpec `json:"specs,omitempty"`
 
 	JobResult
+}
+
+// MarshalJSON implements custom marshaling for ContainerResolveJobResult to
+// maintain backward compatibility of the worker with old composers that only
+// read the flat "specs" field.
+//
+// When PipelineSpecs is populated and Specs is nil, the marshaler derives a
+// flat "specs" array from PipelineSpecs (sorted pipeline names). This keeps
+// the backward compat derivation out of the worker's main flow.
+func (r ContainerResolveJobResult) MarshalJSON() ([]byte, error) {
+	type alias ContainerResolveJobResult
+	a := alias(r)
+
+	// Derive flat specs from PipelineSpecs for old-composer compat.
+	if len(a.PipelineSpecs) > 0 && len(a.Specs) == 0 {
+		for _, name := range slices.Sorted(maps.Keys(a.PipelineSpecs)) {
+			a.Specs = append(a.Specs, a.PipelineSpecs[name]...)
+		}
+	}
+
+	return json.Marshal(a)
 }
 
 type FileResolveJob struct {
