@@ -22,6 +22,7 @@ import (
 	"github.com/osbuild/images/pkg/distro"
 	"github.com/osbuild/images/pkg/distro/test_distro"
 	"github.com/osbuild/images/pkg/osbuild"
+	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/jobqueue/fsjobqueue"
 	"github.com/ondrejbudai/osbuild-composer-public/public/prometheus"
 	"github.com/ondrejbudai/osbuild-composer-public/public/target"
@@ -567,10 +568,7 @@ func enqueueAndFinishTestJobDependencies(s *worker.Server, deps []testJob) ([]uu
 
 		case *worker.ContainerResolveJob:
 			job := dep.main.(*worker.ContainerResolveJob)
-			if len(depUUIDs) != 0 {
-				return nil, fmt.Errorf("dependencies are not supported for ContainerResolveJob, got: %d", len(depUUIDs))
-			}
-			id, err = s.EnqueueContainerResolveJob(job, "")
+			id, err = s.EnqueueContainerResolveJob(job, depUUIDs, "")
 			if err != nil {
 				return nil, err
 			}
@@ -581,6 +579,16 @@ func enqueueAndFinishTestJobDependencies(s *worker.Server, deps []testJob) ([]uu
 				return nil, fmt.Errorf("dependencies are not supported for OSTreeResolveJob, got: %d", len(depUUIDs))
 			}
 			id, err = s.EnqueueOSTreeResolveJob(job, "")
+			if err != nil {
+				return nil, err
+			}
+
+		case *worker.BootcInfoResolveJob:
+			job := dep.main.(*worker.BootcInfoResolveJob)
+			if len(depUUIDs) != 0 {
+				return nil, fmt.Errorf("dependencies are not supported for BootcInfoResolveJob, got: %d", len(depUUIDs))
+			}
+			id, err = s.EnqueueBootcInfoResolveJob(arch.ARCH_X86_64.String(), job, "")
 			if err != nil {
 				return nil, err
 			}
@@ -1534,4 +1542,196 @@ func TestCleanupArtifacts(t *testing.T) {
 	assert.True(t, artifactUUIDExists(tempdir, jobID))
 	assert.False(t, artifactUUIDExists(tempdir, lostJobID))
 	assert.False(t, artifactUUIDExists(tempdir, emptyJobID))
+}
+
+func testBootcInfoResolveSampleJob() *worker.BootcInfoResolveJob {
+	return &worker.BootcInfoResolveJob{
+		Specs: []worker.BootcInfoResolveJobSpec{
+			{
+				Ref:         "quay.io/centos-bootc/centos-bootc:stream9",
+				ResolveMode: worker.BootcInfoResolveModeFull,
+			},
+		},
+	}
+}
+
+func TestBootcInfoResolveJob(t *testing.T) {
+	server := newTestServer(t, t.TempDir(), defaultConfig, false)
+	job := testBootcInfoResolveSampleJob()
+
+	jobID, err := server.EnqueueBootcInfoResolveJob("x86_64", job, "")
+	require.NoError(t, err)
+	require.NotEqual(t, uuid.Nil, jobID)
+
+	dequeuedID, token, jobType, args, dynamicArgs, err := server.RequestJob(
+		context.Background(), "x86_64",
+		[]string{worker.JobTypeBootcInfoResolve}, []string{""}, uuid.Nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t, jobID, dequeuedID)
+	require.Equal(t, worker.JobTypeBootcInfoResolve, jobType)
+	require.NotNil(t, args)
+	require.Nil(t, dynamicArgs)
+	require.NotEqual(t, uuid.Nil, token)
+
+	var dequeuedArgs worker.BootcInfoResolveJob
+	err = json.Unmarshal(args, &dequeuedArgs)
+	require.NoError(t, err)
+	assert.Equal(t, *job, dequeuedArgs)
+
+	expectedResult := worker.BootcInfoResolveJobResult{
+		Infos: []worker.BootcContainerInfo{
+			{
+				Imgref:        "quay.io/centos-bootc/centos-bootc:stream9",
+				ImageID:       "sha256:abc123",
+				Arch:          "x86_64",
+				DefaultRootFs: "xfs",
+				Size:          1073741824,
+			},
+		},
+	}
+	resultJSON, err := json.Marshal(expectedResult)
+	require.NoError(t, err)
+	err = server.FinishJob(token, resultJSON)
+	require.NoError(t, err)
+
+	var jobResult worker.BootcInfoResolveJobResult
+	jobInfo, err := server.BootcInfoResolveJobInfo(jobID, &jobResult)
+	require.NoError(t, err)
+	require.NotNil(t, jobInfo)
+	assert.Equal(t, worker.JobTypeBootcInfoResolve, jobInfo.JobType)
+	assert.False(t, jobInfo.JobStatus.Finished.IsZero())
+	assert.Equal(t, expectedResult.Infos, jobResult.Infos)
+}
+
+func TestBootcInfoResolveJobArchRouting(t *testing.T) {
+	server := newTestServer(t, t.TempDir(), worker.Config{
+		RequestJobTimeout: time.Millisecond * 50,
+		BasePath:          "/api/worker/v1",
+	}, false)
+
+	_, err := server.EnqueueBootcInfoResolveJob("x86_64", testBootcInfoResolveSampleJob(), "")
+	require.NoError(t, err)
+
+	_, _, _, _, _, err = server.RequestJob(
+		context.Background(), "aarch64",
+		[]string{worker.JobTypeBootcInfoResolve}, []string{""}, uuid.Nil,
+	)
+	require.Equal(t, jobqueue.ErrDequeueTimeout, err)
+}
+
+func TestBootcInfoResolveJobInfoWrongType(t *testing.T) {
+	server := newTestServer(t, t.TempDir(), defaultConfig, false)
+
+	depsolveJobID, err := server.EnqueueDepsolve(&worker.DepsolveJob{}, "")
+	require.NoError(t, err)
+
+	_, token, _, _, _, err := server.RequestJob(
+		context.Background(), "x86_64",
+		[]string{worker.JobTypeDepsolve}, []string{""}, uuid.Nil,
+	)
+	require.NoError(t, err)
+
+	err = server.FinishJob(token, json.RawMessage(`{}`))
+	require.NoError(t, err)
+
+	var result worker.BootcInfoResolveJobResult
+	_, err = server.BootcInfoResolveJobInfo(depsolveJobID, &result)
+	require.Error(t, err, "reading depsolve job as bootc-info-resolve should fail")
+}
+
+func testBootcPreManifestSampleJob() *worker.BootcPreManifestJob {
+	return &worker.BootcPreManifestJob{
+		ImageType:                  "qcow2",
+		Seed:                       42,
+		BootcInfoResolveDynArgsIdx: common.ToPtr(0),
+	}
+}
+
+func TestEnqueueBootcPreManifestJob(t *testing.T) {
+	server := newTestServer(t, t.TempDir(), defaultConfig, false)
+
+	infoResolveJobID, err := server.EnqueueBootcInfoResolveJob("x86_64", testBootcInfoResolveSampleJob(), "")
+	require.NoError(t, err)
+
+	preManifestJobID, err := server.EnqueueBootcPreManifestJob(
+		testBootcPreManifestSampleJob(), []uuid.UUID{infoResolveJobID}, "",
+	)
+	require.NoError(t, err)
+	require.NotEqual(t, uuid.Nil, preManifestJobID)
+
+	jobType, err := server.JobType(preManifestJobID)
+	require.NoError(t, err)
+	assert.Equal(t, worker.JobTypeBootcPreManifest, jobType)
+}
+
+func TestBootcPreManifestJobInfo(t *testing.T) {
+	server := newTestServer(t, t.TempDir(), defaultConfig, false)
+	job := testBootcPreManifestSampleJob()
+
+	preManifestJobID, err := server.EnqueueBootcPreManifestJob(job, nil, "")
+	require.NoError(t, err)
+
+	dequeuedID, token, jobType, args, dynamicArgs, err := server.RequestJob(
+		context.Background(), "",
+		[]string{worker.JobTypeBootcPreManifest}, []string{""}, uuid.Nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t, preManifestJobID, dequeuedID)
+	require.Equal(t, worker.JobTypeBootcPreManifest, jobType)
+	require.NotNil(t, args)
+	require.Nil(t, dynamicArgs)
+	require.NotEqual(t, uuid.Nil, token)
+
+	var dequeuedArgs worker.BootcPreManifestJob
+	err = json.Unmarshal(args, &dequeuedArgs)
+	require.NoError(t, err)
+	assert.Equal(t, *job, dequeuedArgs)
+
+	expectedResult := worker.BootcPreManifestJobResult{
+		ContainerResolveJobArgs: &worker.ContainerResolveJob{
+			Arch: "x86_64",
+			PipelineSpecs: map[string][]worker.ContainerSpec{
+				"image": {
+					{Source: "quay.io/test:latest", Name: "quay.io/test:latest"},
+				},
+				"build": {
+					{Source: "quay.io/test:latest", Name: "quay.io/test:latest"},
+				},
+			},
+		},
+	}
+	resultJSON, err := json.Marshal(expectedResult)
+	require.NoError(t, err)
+	err = server.FinishJob(token, resultJSON)
+	require.NoError(t, err)
+
+	var readResult worker.BootcPreManifestJobResult
+	jobInfo, err := server.BootcPreManifestJobInfo(preManifestJobID, &readResult)
+	require.NoError(t, err)
+	require.NotNil(t, jobInfo)
+	assert.Equal(t, worker.JobTypeBootcPreManifest, jobInfo.JobType)
+	assert.False(t, jobInfo.JobStatus.Finished.IsZero())
+	assert.Equal(t, expectedResult.ContainerResolveJobArgs, readResult.ContainerResolveJobArgs)
+}
+
+func TestBootcPreManifestJobInfoWrongType(t *testing.T) {
+	server := newTestServer(t, t.TempDir(), defaultConfig, false)
+
+	// Enqueue a depsolve job, then try to read it as a bootc-pre-manifest job
+	depsolveJobID, err := server.EnqueueDepsolve(&worker.DepsolveJob{}, "")
+	require.NoError(t, err)
+
+	_, token, _, _, _, err := server.RequestJob(
+		context.Background(), "x86_64",
+		[]string{worker.JobTypeDepsolve}, []string{""}, uuid.Nil,
+	)
+	require.NoError(t, err)
+
+	err = server.FinishJob(token, json.RawMessage(`{}`))
+	require.NoError(t, err)
+
+	var readResult worker.BootcPreManifestJobResult
+	_, err = server.BootcPreManifestJobInfo(depsolveJobID, &readResult)
+	require.Error(t, err, "reading depsolve job as bootc-pre-manifest should fail")
 }

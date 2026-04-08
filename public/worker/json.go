@@ -10,8 +10,11 @@ import (
 	"time"
 
 	"github.com/osbuild/blueprint/pkg/blueprint"
+	"github.com/osbuild/images/pkg/bib/osinfo"
+	"github.com/osbuild/images/pkg/bootc"
 	"github.com/osbuild/images/pkg/container"
 	"github.com/osbuild/images/pkg/depsolvednf"
+	"github.com/osbuild/images/pkg/distro"
 	"github.com/osbuild/images/pkg/manifest"
 	"github.com/osbuild/images/pkg/osbuild"
 	"github.com/osbuild/images/pkg/rpmmd"
@@ -48,8 +51,13 @@ type OSBuildJob struct {
 	// as part of the depsolve job, so that they can be uploaded to Koji.
 	DepsolveDynArgsIdx *int `json:"depsolve_dyn_args_idx,omitempty"`
 
-	Targets       []*target.Target `json:"targets,omitempty"`
-	PipelineNames *PipelineNames   `json:"pipeline_names,omitempty"`
+	Targets []*target.Target `json:"targets,omitempty"`
+
+	// Deprecated: PipelineNames should not be set on OSBuildJob args.
+	// PipelineNames are now always read from ManifestJobByIDResult.ManifestInfo.PipelineNames,
+	// set by serializeManifest in CloudAPI. This field is kept for backward compatibility
+	// and due to Weldr API still setting it on OSBuildJob args.
+	PipelineNames *PipelineNames `json:"pipeline_names,omitempty"`
 
 	// The ImageBootMode is just copied to the result by the worker, so that
 	// the value can be accessed job which depend on it.
@@ -985,6 +993,10 @@ func (cs *ContainerSpec) ToVendorSpec() container.Spec {
 type ContainerResolveJob struct {
 	Arch          string                     `json:"arch"`
 	PipelineSpecs map[string][]ContainerSpec `json:"pipeline_specs,omitempty"`
+
+	// Index of the BootcPreManifestJobResult in dynamic args, from which
+	// to read resolve args when PipelineSpecs is empty.
+	PreManifestDynArgsIdx *int `json:"pre_manifest_dyn_args_idx,omitempty"`
 }
 
 // MarshalJSON implements custom marshaling for ContainerResolveJob to maintain
@@ -1139,19 +1151,6 @@ type AWSEC2CopyJobResult struct {
 	Region string `json:"region"`
 }
 
-type BootcManifestJob struct {
-	Ref       string              `json:"reference"`
-	BuildRef  string              `json:"build_reference"`
-	Arch      string              `json:"arch"`
-	ImageType string              `json:"image_type"`
-	Repos     []rpmmd.RepoConfig  `json:"repositories"`
-	Blueprint blueprint.Blueprint `json:"blueprint"`
-}
-
-// BootcManifestJobResult == ManifestJobByIDResult to maintain compatibility with the existing
-// osbuild job
-type BootcManifestJobResult = ManifestJobByIDResult
-
 // ImageBuilderManifestJob generates a manifest from a build request using
 // image-builder-cli. Includes resolving all content types.
 type ImageBuilderManifestJob struct {
@@ -1164,3 +1163,139 @@ type ImageBuilderManifestJob struct {
 
 // ImageBuilderManifestJobResult is an alias to [ManifestJobByIDResult].
 type ImageBuilderManifestJobResult = ManifestJobByIDResult
+
+// BootcInfoResolveMode is a type that represents the mode of bootc info resolve operation.
+type BootcInfoResolveMode string
+
+const (
+	BootcInfoResolveModeFull  BootcInfoResolveMode = "full"
+	BootcInfoResolveModeBuild BootcInfoResolveMode = "build"
+)
+
+func (m *BootcInfoResolveMode) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+
+	if !slices.Contains([]BootcInfoResolveMode{
+		BootcInfoResolveModeFull,
+		BootcInfoResolveModeBuild,
+	}, BootcInfoResolveMode(s)) {
+		return fmt.Errorf("invalid bootc info resolve mode: %q", s)
+	}
+
+	*m = BootcInfoResolveMode(s)
+	return nil
+}
+
+// BootcInfoResolveJobSpec is a specification for a single bootc container to resolve.
+type BootcInfoResolveJobSpec struct {
+	Ref         string               `json:"reference"`
+	ResolveMode BootcInfoResolveMode `json:"resolve_mode"`
+}
+
+// BootcInfoResolveJob resolves bootc container metadata by running
+// and inspecting the container. Each job handles multiple containers.
+type BootcInfoResolveJob struct {
+	Specs []BootcInfoResolveJobSpec `json:"specs"`
+}
+
+// BootcContainerInfo is a DTO for bootc container metadata, decoupled
+// from the vendored bootc.Info type. The OSInfo field is kept as
+// json.RawMessage for simplicity; it can be expanded with more
+// granular fields later if needed.
+type BootcContainerInfo struct {
+	Imgref        string          `json:"imgref"`
+	ImageID       string          `json:"image_id"`
+	Arch          string          `json:"arch"`
+	DefaultRootFs string          `json:"default_root_fs"`
+	Size          uint64          `json:"size"`
+	OSInfo        json.RawMessage `json:"os_info,omitempty"`
+}
+
+// BootcContainerInfoFromVendor converts a vendored bootc.Info to the DTO.
+func BootcContainerInfoFromVendor(info *bootc.Info) (*BootcContainerInfo, error) {
+	if info == nil {
+		return nil, fmt.Errorf("input info is nil")
+	}
+
+	containerInfo := &BootcContainerInfo{
+		Imgref:        info.Imgref,
+		ImageID:       info.ImageID,
+		Arch:          info.Arch,
+		DefaultRootFs: info.DefaultRootFs,
+		Size:          info.Size,
+	}
+
+	if info.OSInfo != nil {
+		osInfoJSON, err := json.Marshal(info.OSInfo)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal OSInfo: %w", err)
+		}
+		containerInfo.OSInfo = osInfoJSON
+	}
+
+	return containerInfo, nil
+}
+
+// ToVendor converts the DTO back to the vendored bootc.Info type.
+func (b *BootcContainerInfo) ToVendor() (*bootc.Info, error) {
+	if b == nil {
+		return nil, fmt.Errorf("input info is nil")
+	}
+
+	info := &bootc.Info{
+		Imgref:        b.Imgref,
+		ImageID:       b.ImageID,
+		Arch:          b.Arch,
+		DefaultRootFs: b.DefaultRootFs,
+		Size:          b.Size,
+	}
+
+	if len(b.OSInfo) > 0 {
+		info.OSInfo = new(osinfo.Info)
+		if err := json.Unmarshal(b.OSInfo, info.OSInfo); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal OSInfo: %w", err)
+		}
+	}
+
+	return info, nil
+}
+
+type BootcInfoResolveJobResult struct {
+	// Infos is a list of resolved bootc container infos. The order of the infos
+	// is the same as the order of the specs in the job args.
+	Infos []BootcContainerInfo `json:"infos"`
+	JobResult
+}
+
+// BootcPreManifestJob is a server-side job that generates a pre-manifest
+// from resolved bootc info. Its result contains the arguments for
+// downstream resolve jobs.
+type BootcPreManifestJob struct {
+	ImageType    string              `json:"image_type"`
+	Blueprint    blueprint.Blueprint `json:"blueprint"`
+	ImageOptions distro.ImageOptions `json:"image_options"`
+	Seed         int64               `json:"seed"`
+
+	// Index of the BootcInfoResolveJobResult in the dynamic args slice.
+	BootcInfoResolveDynArgsIdx *int `json:"bootc_info_resolve_dyn_args_idx"`
+
+	// Index of the base container info within BootcInfoResolveJobResult.Infos.
+	BaseInfoIdx int `json:"base_info_idx"`
+
+	// Index of the build container info within BootcInfoResolveJobResult.Infos.
+	// If nil, the base container is used for build as well.
+	BuildInfoIdx *int `json:"build_info_idx,omitempty"`
+}
+
+// BootcPreManifestJobResult holds the result of a BootcPreManifest job,
+// including the arguments for downstream container resolve jobs extracted
+// from the pre-manifest.
+type BootcPreManifestJobResult struct {
+	// Arguments for the downstream container resolve job.
+	ContainerResolveJobArgs *ContainerResolveJob `json:"container_resolve_job_args,omitempty"`
+
+	JobResult
+}

@@ -9,34 +9,25 @@ import (
 	"github.com/stretchr/testify/require"
 
 	main "github.com/ondrejbudai/osbuild-composer-public/cmd/osbuild-worker"
+	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker/clienterrors"
 )
 
-func assertResolveResult(t *testing.T, raw json.RawMessage, assertFn func(t *testing.T, cntResolveResult worker.ContainerResolveJobResult)) {
-	t.Helper()
-	var r worker.ContainerResolveJobResult
-	require.NoError(t, json.Unmarshal(raw, &r))
-	assertFn(t, r)
-}
-
 func TestContainerResolveJobRun(t *testing.T) {
-	assertNoopResolveResult := func(t *testing.T, raw json.RawMessage) {
-		assertResolveResult(t, raw, func(t *testing.T, cntResolveResult worker.ContainerResolveJobResult) {
-			assert.Nil(t, cntResolveResult.JobError)
-			assert.Empty(t, cntResolveResult.PipelineSpecs)
-		})
+	assertEmptyResult := func(t *testing.T, result worker.ContainerResolveJobResult) {
+		assert.Nil(t, result.JobError)
+		assert.Empty(t, result.PipelineSpecs)
 	}
 
 	tests := []struct {
 		name               string
 		jobArgs            *worker.ContainerResolveJob
 		jobArgsRaw         json.RawMessage // if jobArgs is nil, use this instead
-		finishErr          error
-		wantRunErr         bool
-		wantErrSubstr      string
-		wantFinishCalled   bool
-		verifyFinishResult func(t *testing.T, raw json.RawMessage)
+		dynArgs            []interface{}
+		mockMockJobFunc    func(t *testing.T, jobType string, rawArgs json.RawMessage, dynamicArgs ...interface{}) *mockJob // if nil, use the default mock job creator
+		wantRunErrSubstr   string                                                                                           // if empty, no error is expected
+		verifyFinishResult func(t *testing.T, result worker.ContainerResolveJobResult)
 	}{
 		{
 			name: "empty pipeline specs - no-op",
@@ -44,8 +35,7 @@ func TestContainerResolveJobRun(t *testing.T) {
 				Arch:          "x86_64",
 				PipelineSpecs: map[string][]worker.ContainerSpec{},
 			},
-			wantFinishCalled:   true,
-			verifyFinishResult: assertNoopResolveResult,
+			verifyFinishResult: assertEmptyResult,
 		},
 		{
 			name: "nil pipeline specs - no-op",
@@ -53,24 +43,29 @@ func TestContainerResolveJobRun(t *testing.T) {
 				Arch:          "x86_64",
 				PipelineSpecs: nil,
 			},
-			wantFinishCalled:   true,
-			verifyFinishResult: assertNoopResolveResult,
+			verifyFinishResult: assertEmptyResult,
 		},
 		{
 			name:             "args unmarshal error",
 			jobArgsRaw:       json.RawMessage(`{invalid json`),
-			wantRunErr:       true,
-			wantFinishCalled: true,
+			wantRunErrSubstr: "Error parsing container resolve job args: invalid character 'i' looking for beginning of object key string",
+			verifyFinishResult: func(t *testing.T, result worker.ContainerResolveJobResult) {
+				assert.NotNil(t, result.JobError)
+				assert.Equal(t, clienterrors.ErrorParsingJobArgs, result.JobError.ID)
+			},
 		},
 		{
-			name: "finish error is logged not returned",
+			name: "job.Finish() error is logged, but not returned from impl.Run()",
 			jobArgs: &worker.ContainerResolveJob{
 				Arch:          "x86_64",
 				PipelineSpecs: map[string][]worker.ContainerSpec{},
 			},
-			finishErr:        fmt.Errorf("connection lost"),
-			wantRunErr:       false,
-			wantFinishCalled: true,
+			mockMockJobFunc: func(t *testing.T, jobType string, rawArgs json.RawMessage, dynamicArgs ...interface{}) *mockJob {
+				jobMock := newMockJob(t, jobType, rawArgs)
+				jobMock.finishErr = fmt.Errorf("connection lost")
+				return jobMock
+			},
+			wantRunErrSubstr: "", // no error expected
 		},
 		{
 			name: "pipeline specs with unresolvable container",
@@ -85,14 +80,10 @@ func TestContainerResolveJobRun(t *testing.T) {
 					},
 				},
 			},
-			wantRunErr:       true,
-			wantErrSubstr:    "Error resolving containers for pipeline \"image\":",
-			wantFinishCalled: true,
-			verifyFinishResult: func(t *testing.T, raw json.RawMessage) {
-				assertResolveResult(t, raw, func(t *testing.T, cntResolveResult worker.ContainerResolveJobResult) {
-					assert.NotNil(t, cntResolveResult.JobError, "expected job error for unresolvable container")
-					assert.Equal(t, clienterrors.ErrorContainerResolution, cntResolveResult.JobError.ID)
-				})
+			wantRunErrSubstr: "Error resolving containers for pipeline \"image\":",
+			verifyFinishResult: func(t *testing.T, result worker.ContainerResolveJobResult) {
+				assert.NotNil(t, result.JobError, "expected job error for unresolvable container")
+				assert.Equal(t, clienterrors.ErrorContainerResolution, result.JobError.ID)
 			},
 		},
 		{
@@ -108,14 +99,151 @@ func TestContainerResolveJobRun(t *testing.T) {
 					}
 				]
 			}`),
-			wantRunErr:       true,
-			wantErrSubstr:    "Error resolving containers for pipeline \"\":",
-			wantFinishCalled: true,
-			verifyFinishResult: func(t *testing.T, raw json.RawMessage) {
-				assertResolveResult(t, raw, func(t *testing.T, cntResolveResult worker.ContainerResolveJobResult) {
-					assert.NotNil(t, cntResolveResult.JobError, "expected job error for unresolvable container")
-					assert.Equal(t, clienterrors.ErrorContainerResolution, cntResolveResult.JobError.ID)
-				})
+			wantRunErrSubstr: "Error resolving containers for pipeline \"\":",
+			verifyFinishResult: func(t *testing.T, result worker.ContainerResolveJobResult) {
+				assert.NotNil(t, result.JobError, "expected job error for unresolvable container")
+				assert.Equal(t, clienterrors.ErrorContainerResolution, result.JobError.ID)
+			},
+		},
+		{
+			name: "PipelineSpecs and PreManifestDynArgsIdx set at the same time",
+			jobArgs: &worker.ContainerResolveJob{
+				Arch: "x86_64",
+				PipelineSpecs: map[string][]worker.ContainerSpec{
+					"build": {
+						{
+							Source: "localhost:1/nonexistent/image:latest",
+							Name:   "test-container",
+						},
+					},
+				},
+				PreManifestDynArgsIdx: common.ToPtr(0),
+			},
+			dynArgs: []interface{}{
+				worker.BootcPreManifestJobResult{
+					ContainerResolveJobArgs: &worker.ContainerResolveJob{
+						Arch: "x86_64",
+						PipelineSpecs: map[string][]worker.ContainerSpec{
+							"build": {
+								{
+									Source: "localhost:1/nonexistent/image:latest",
+									Name:   "test-from-dynargs",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantRunErrSubstr: "PipelineSpecs and PreManifestDynArgsIdx cannot be set at the same time",
+			verifyFinishResult: func(t *testing.T, result worker.ContainerResolveJobResult) {
+				assert.NotNil(t, result.JobError, "expected job error for invalid config")
+			},
+		},
+		{
+			name: "dynArgs with PreManifestDynArgsIdx reads specs from BootcPreManifestJobResult",
+			jobArgs: &worker.ContainerResolveJob{
+				Arch:                  "x86_64",
+				PipelineSpecs:         nil,
+				PreManifestDynArgsIdx: common.ToPtr(0),
+			},
+			dynArgs: []interface{}{
+				worker.BootcPreManifestJobResult{
+					ContainerResolveJobArgs: &worker.ContainerResolveJob{
+						Arch: "x86_64",
+						PipelineSpecs: map[string][]worker.ContainerSpec{
+							"build": {
+								{
+									Source: "localhost:1/nonexistent/image:latest",
+									Name:   "test-from-dynargs",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantRunErrSubstr: "Error resolving containers",
+			verifyFinishResult: func(t *testing.T, result worker.ContainerResolveJobResult) {
+				assert.NotNil(t, result.JobError, "expected job error for unresolvable container from dynArgs")
+				assert.Equal(t, clienterrors.ErrorContainerResolution, result.JobError.ID, "expected ErrorContainerResolution, got %d", result.JobError.ID)
+			},
+		},
+		{
+			name: "dynArgs with empty ContainerResolveJobArgs is no-op",
+			jobArgs: &worker.ContainerResolveJob{
+				Arch:                  "x86_64",
+				PipelineSpecs:         nil,
+				PreManifestDynArgsIdx: common.ToPtr(0),
+			},
+			dynArgs: []interface{}{worker.BootcPreManifestJobResult{}},
+			verifyFinishResult: func(t *testing.T, result worker.ContainerResolveJobResult) {
+				assert.Nil(t, result.JobError, "expected no job error for empty ContainerResolveJobArgs")
+				assert.Empty(t, result.PipelineSpecs, "expected empty result PipelineSpecs when ContainerResolveJobArgs is empty")
+			},
+		},
+		{
+			name: "dynArgs index out of range",
+			jobArgs: &worker.ContainerResolveJob{
+				Arch:                  "x86_64",
+				PipelineSpecs:         nil,
+				PreManifestDynArgsIdx: common.ToPtr(5),
+			},
+			wantRunErrSubstr: "Error reading container resolve args from dynamic args",
+			verifyFinishResult: func(t *testing.T, result worker.ContainerResolveJobResult) {
+				require.NotNil(t, result.JobError, "expected job error for out-of-range dynArgs index")
+				assert.Equal(t, clienterrors.ErrorParsingDynamicArgs, result.JobError.ID, "expected ErrorParsingDynamicArgs, got %d", result.JobError.ID)
+			},
+		},
+		{
+			name: "dynArgs index out of range - negative index",
+			jobArgs: &worker.ContainerResolveJob{
+				Arch:                  "x86_64",
+				PipelineSpecs:         nil,
+				PreManifestDynArgsIdx: common.ToPtr(-1),
+			},
+			wantRunErrSubstr: "Error reading container resolve args from dynamic args",
+			verifyFinishResult: func(t *testing.T, result worker.ContainerResolveJobResult) {
+				require.NotNil(t, result.JobError, "expected job error for out-of-range dynArgs index")
+				assert.Equal(t, clienterrors.ErrorParsingDynamicArgs, result.JobError.ID, "expected ErrorParsingDynamicArgs, got %d", result.JobError.ID)
+			},
+		},
+		{
+			name: "dynArgs dependency failed",
+			jobArgs: &worker.ContainerResolveJob{
+				Arch:                  "x86_64",
+				PipelineSpecs:         nil,
+				PreManifestDynArgsIdx: common.ToPtr(0),
+			},
+			dynArgs: []interface{}{
+				worker.BootcPreManifestJobResult{
+					JobResult: worker.JobResult{
+						JobError: clienterrors.New(clienterrors.ErrorBuildJob, "pre-manifest failed", nil),
+					},
+				},
+			},
+			wantRunErrSubstr: "Error reading container resolve args from dynamic args",
+			verifyFinishResult: func(t *testing.T, result worker.ContainerResolveJobResult) {
+				require.NotNil(t, result.JobError, "expected job error for failed dependency")
+				assert.Equal(t, clienterrors.ErrorJobDependency, result.JobError.ID, "expected ErrorJobDependency, got %d", result.JobError.ID)
+			},
+		},
+		{
+			name: "no dynArgs without PreManifestDynArgsIdx - standard flow unchanged",
+			jobArgs: &worker.ContainerResolveJob{
+				Arch: "x86_64",
+				PipelineSpecs: map[string][]worker.ContainerSpec{
+					"build": {
+						{
+							Source: "localhost:1/nonexistent/image:latest",
+							Name:   "test-container",
+						},
+					},
+				},
+				PreManifestDynArgsIdx: nil,
+			},
+			wantRunErrSubstr: "Error resolving containers",
+			verifyFinishResult: func(t *testing.T, result worker.ContainerResolveJobResult) {
+				assert.NotNil(t, result.JobError, "expected job error for unresolvable container")
+				assert.Equal(t, clienterrors.ErrorContainerResolution, result.JobError.ID, "expected ErrorContainerResolution, got %d", result.JobError.ID)
 			},
 		},
 	}
@@ -129,24 +257,29 @@ func TestContainerResolveJobRun(t *testing.T) {
 				rawArgs = tt.jobArgsRaw
 			}
 
-			jobMock := newMockJob(t, worker.JobTypeContainerResolve, rawArgs)
-			jobMock.finishErr = tt.finishErr
+			// if no mock worker job constructor is provided, use the default mock job creator
+			if tt.mockMockJobFunc == nil {
+				tt.mockMockJobFunc = newMockJob
+			}
+			jobMock := tt.mockMockJobFunc(t, worker.JobTypeContainerResolve, rawArgs, tt.dynArgs...)
 
 			impl := &main.ContainerResolveJobImpl{AuthFilePath: ""}
 			runErr := impl.Run(jobMock)
 
-			if tt.wantRunErr {
+			if tt.wantRunErrSubstr != "" {
 				require.Error(t, runErr)
-				if tt.wantErrSubstr != "" {
-					assert.Contains(t, runErr.Error(), tt.wantErrSubstr)
-				}
+				assert.Contains(t, runErr.Error(), tt.wantRunErrSubstr)
 			} else {
 				require.NoError(t, runErr)
 			}
 
-			assert.Equal(t, tt.wantFinishCalled, jobMock.finishCalled, "Finish() called state")
-			if tt.verifyFinishResult != nil && jobMock.finishCalled && tt.finishErr == nil {
-				tt.verifyFinishResult(t, jobMock.finishResult)
+			assert.True(t, jobMock.finishCalled, "Finish() should be called")
+			if tt.verifyFinishResult != nil {
+				var result worker.ContainerResolveJobResult
+				require.NoError(t, json.Unmarshal(jobMock.finishResult, &result))
+				tt.verifyFinishResult(t, result)
+			} else {
+				assert.Nil(t, jobMock.finishResult)
 			}
 		})
 	}

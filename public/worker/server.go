@@ -41,7 +41,11 @@ const (
 	JobTypeAWSEC2Copy           string = "aws-ec2-copy"
 	JobTypeAWSEC2Share          string = "aws-ec2-share"
 	JobTypeImageBuilderManifest string = "image-builder-manifest"
-	JobTypeBootcManifest        string = "bootc-manifest"
+	JobTypeBootcInfoResolve     string = "bootc-info-resolve"
+	// JobTypeBootcPreManifest is a server-side job type handled by the
+	// bootcPreManifestLoop in the API server. Workers must NOT register
+	// this type in their acceptedJobTypes.
+	JobTypeBootcPreManifest string = "bootc-pre-manifest"
 )
 
 type Server struct {
@@ -213,13 +217,13 @@ func (s *Server) EnqueueSearchPackages(job *SearchPackagesJob, channel string) (
 
 func (s *Server) EnqueueManifestJobByID(job *ManifestJobByID, dependencies []uuid.UUID, channel string) (uuid.UUID, error) {
 	if len(dependencies) == 0 {
-		panic("EnqueueManifestJobByID has no dependencies, expected at least a depsolve job")
+		panic("EnqueueManifestJobByID has no dependencies, expected at least one dependency")
 	}
 	return s.enqueue(JobTypeManifestIDOnly, job, dependencies, channel)
 }
 
-func (s *Server) EnqueueContainerResolveJob(job *ContainerResolveJob, channel string) (uuid.UUID, error) {
-	return s.enqueue(JobTypeContainerResolve, job, nil, channel)
+func (s *Server) EnqueueContainerResolveJob(job *ContainerResolveJob, dependencies []uuid.UUID, channel string) (uuid.UUID, error) {
+	return s.enqueue(JobTypeContainerResolve, job, dependencies, channel)
 }
 
 func (s *Server) EnqueueFileResolveJob(job *FileResolveJob, channel string) (uuid.UUID, error) {
@@ -242,8 +246,12 @@ func (s *Server) EnqueueImageBuilderManifestJob(job *ImageBuilderManifestJob, ch
 	return s.enqueue(JobTypeImageBuilderManifest, job, nil, channel)
 }
 
-func (s *Server) EnqueueBootcManifestJob(job *BootcManifestJob, channel string) (uuid.UUID, error) {
-	return s.enqueue(JobTypeBootcManifest, job, nil, channel)
+func (s *Server) EnqueueBootcInfoResolveJob(arch string, job *BootcInfoResolveJob, channel string) (uuid.UUID, error) {
+	return s.enqueue(JobTypeBootcInfoResolve+":"+arch, job, nil, channel)
+}
+
+func (s *Server) EnqueueBootcPreManifestJob(job *BootcPreManifestJob, dependencies []uuid.UUID, channel string) (uuid.UUID, error) {
+	return s.enqueue(JobTypeBootcPreManifest, job, dependencies, channel)
 }
 
 func (s *Server) enqueue(jobType string, job interface{}, dependencies []uuid.UUID, channel string) (uuid.UUID, error) {
@@ -338,14 +346,20 @@ func (s *Server) JobDependencyChainErrors(id uuid.UUID) (*clienterrors.Error, er
 			return nil, err
 		}
 		jobResult = &ibManifestJR.JobResult
-	case JobTypeBootcManifest:
-		var bootcManifestJR BootcManifestJobResult
-		jobInfo, err = s.ManifestJobInfo(id, &bootcManifestJR)
+	case JobTypeBootcInfoResolve:
+		var bootcInfoResolveJR BootcInfoResolveJobResult
+		jobInfo, err = s.BootcInfoResolveJobInfo(id, &bootcInfoResolveJR)
 		if err != nil {
 			return nil, err
 		}
-		jobResult = &bootcManifestJR.JobResult
-
+		jobResult = &bootcInfoResolveJR.JobResult
+	case JobTypeBootcPreManifest:
+		var bootcPreManifestJR BootcPreManifestJobResult
+		jobInfo, err = s.BootcPreManifestJobInfo(id, &bootcPreManifestJR)
+		if err != nil {
+			return nil, err
+		}
+		jobResult = &bootcPreManifestJR.JobResult
 	default:
 		return nil, fmt.Errorf("unexpected job type: %s", jobType)
 	}
@@ -521,7 +535,7 @@ func (s *Server) ManifestJobInfo(id uuid.UUID, result *ManifestJobByIDResult) (*
 	}
 
 	switch jobInfo.JobType {
-	case JobTypeManifestIDOnly, JobTypeImageBuilderManifest, JobTypeBootcManifest:
+	case JobTypeManifestIDOnly, JobTypeImageBuilderManifest:
 		return jobInfo, nil
 	default:
 		return nil, fmt.Errorf("expected %q or %q, found %q job instead", JobTypeManifestIDOnly, JobTypeImageBuilderManifest, jobInfo.JobType)
@@ -608,6 +622,32 @@ func (s *Server) ImageBuilderManifestJobInfo(id uuid.UUID, result *ImageBuilderM
 	return jobInfo, nil
 }
 
+func (s *Server) BootcInfoResolveJobInfo(id uuid.UUID, result *BootcInfoResolveJobResult) (*JobInfo, error) {
+	jobInfo, err := s.jobInfo(id, result)
+	if err != nil {
+		return nil, err
+	}
+
+	if jobInfo.JobType != JobTypeBootcInfoResolve {
+		return nil, fmt.Errorf("expected %q, found %q job instead", JobTypeBootcInfoResolve, jobInfo.JobType)
+	}
+
+	return jobInfo, nil
+}
+
+func (s *Server) BootcPreManifestJobInfo(id uuid.UUID, result *BootcPreManifestJobResult) (*JobInfo, error) {
+	jobInfo, err := s.jobInfo(id, result)
+	if err != nil {
+		return nil, err
+	}
+
+	if jobInfo.JobType != JobTypeBootcPreManifest {
+		return nil, fmt.Errorf("expected %q, found %q job instead", JobTypeBootcPreManifest, jobInfo.JobType)
+	}
+
+	return jobInfo, nil
+}
+
 func (s *Server) jobInfo(id uuid.UUID, result interface{}) (*JobInfo, error) {
 	jobType, channel, rawResult, queued, started, finished, canceled, deps, dependents, err := s.jobs.JobStatus(id)
 	if err != nil {
@@ -659,12 +699,25 @@ func (s *Server) JobChannel(id uuid.UUID) (string, error) {
 	return channel, err
 }
 
+// JobTypeWithArch returns the type and architecture of the job
+// If the job type does not have an architecture, the second return value will be an empty string.
+func (s *Server) JobTypeWithArch(id uuid.UUID) (string, string, error) {
+	jobType, _, _, _, err := s.jobs.Job(id)
+	if err != nil {
+		return "", "", err
+	}
+	var arch string
+	jobtypeParts := strings.SplitN(jobType, ":", 2)
+	if len(jobtypeParts) == 2 {
+		arch = jobtypeParts[1]
+	}
+	return jobtypeParts[0], arch, nil
+}
+
 // JobType returns the type of the job
 func (s *Server) JobType(id uuid.UUID) (string, error) {
-	jobType, _, _, _, err := s.jobs.Job(id)
-	// the architecture is internally encdode in the job type, but hide that
-	// from this API
-	return strings.Split(jobType, ":")[0], err
+	jobType, _, err := s.JobTypeWithArch(id)
+	return jobType, err
 }
 
 func (s *Server) Cancel(id uuid.UUID) error {
@@ -780,14 +833,15 @@ func (s *Server) requestJob(ctx context.Context, arch string, jobTypes []string,
 	jobId uuid.UUID, token uuid.UUID, jobType string, args json.RawMessage, dynamicArgs []json.RawMessage, err error) {
 	// treat osbuild jobs specially until we have found a generic way to
 	// specify dequeuing restrictions. For now, we only have one
-	// restriction: arch for osbuild jobs.
+	// restriction: arch for osbuild and bootc info resolve jobs.
 	jts := []string{}
-	// Only set the label used for prometheus metrics when it's an osbuild job. Otherwise the
-	// dequeue metrics would set the label for all job types, while the finish metrics only set
-	// it for osbuild jobs.
+	// Only set the arch label used for prometheus metrics for job types that
+	// use arch-based dequeuing. Otherwise the dequeue metrics would set the
+	// label for all job types, while the finish metrics only set it for
+	// arch-aware jobs (osbuild and bootc-info-resolve).
 	var archPromLabel string
 	for _, t := range jobTypes {
-		if t == JobTypeOSBuild {
+		if t == JobTypeOSBuild || t == JobTypeBootcInfoResolve {
 			t = t + ":" + arch
 			archPromLabel = arch
 		}
@@ -918,12 +972,11 @@ func (s *Server) RequeueOrFinishJob(token uuid.UUID, maxRetries uint64, result j
 		return nil
 	}
 
-	jobType, err := s.JobType(jobId)
+	jobType, jobArch, err := s.JobTypeWithArch(jobId)
 	if err != nil {
 		return err
 	}
 
-	var arch string
 	var jobInfo *JobInfo
 	var jobResult *JobResult
 	switch jobType {
@@ -933,7 +986,6 @@ func (s *Server) RequeueOrFinishJob(token uuid.UUID, maxRetries uint64, result j
 		if err != nil {
 			return err
 		}
-		arch = osbuildJR.Arch
 		jobResult = &osbuildJR.JobResult
 
 	case JobTypeDepsolve:
@@ -1017,20 +1069,26 @@ func (s *Server) RequeueOrFinishJob(token uuid.UUID, maxRetries uint64, result j
 			return err
 		}
 		jobResult = &ibManifestJR.JobResult
-	case JobTypeBootcManifest:
-		var bootcJR BootcManifestJobResult
-		jobInfo, err = s.ManifestJobInfo(jobId, &bootcJR)
+	case JobTypeBootcInfoResolve:
+		var bootcInfoResolveJR BootcInfoResolveJobResult
+		jobInfo, err = s.BootcInfoResolveJobInfo(jobId, &bootcInfoResolveJR)
 		if err != nil {
 			return err
 		}
-		jobResult = &bootcJR.JobResult
-
+		jobResult = &bootcInfoResolveJR.JobResult
+	case JobTypeBootcPreManifest:
+		var bootcPreManifestJR BootcPreManifestJobResult
+		jobInfo, err = s.BootcPreManifestJobInfo(jobId, &bootcPreManifestJR)
+		if err != nil {
+			return err
+		}
+		jobResult = &bootcPreManifestJR.JobResult
 	default:
 		return fmt.Errorf("unexpected job type: %s", jobType)
 	}
 
 	statusCode := clienterrors.GetStatusCode(jobResult.JobError)
-	prometheus.FinishJobMetrics(jobInfo.JobStatus.Started, jobInfo.JobStatus.Finished, jobInfo.JobStatus.Canceled, jobType, jobInfo.Channel, arch, statusCode)
+	prometheus.FinishJobMetrics(jobInfo.JobStatus.Started, jobInfo.JobStatus.Finished, jobInfo.JobStatus.Canceled, jobType, jobInfo.Channel, jobArch, statusCode)
 
 	// Move artifacts from the temporary location to the final job
 	// location. Log any errors, but do not treat them as fatal. The job is

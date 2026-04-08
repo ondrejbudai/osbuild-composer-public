@@ -2,10 +2,14 @@ package v2
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"math/big"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -20,10 +24,15 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/sirupsen/logrus"
 
+	"github.com/osbuild/blueprint/pkg/blueprint"
 	"github.com/ondrejbudai/osbuild-composer-public/pkg/jobqueue"
 
+	"github.com/osbuild/images/pkg/arch"
+	"github.com/osbuild/images/pkg/bootc"
 	"github.com/osbuild/images/pkg/container"
+	"github.com/osbuild/images/pkg/depsolvednf"
 	"github.com/osbuild/images/pkg/distro"
+	"github.com/osbuild/images/pkg/distro/generic"
 	"github.com/osbuild/images/pkg/distrofactory"
 	"github.com/osbuild/images/pkg/manifest"
 	"github.com/osbuild/images/pkg/ostree"
@@ -37,8 +46,13 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker/clienterrors"
 )
 
-// How long to wait for a depsolve job to finish
-const depsolveTimeoutMin = 5
+// maxJobTimeoutMinutes is the maximum timeout in minutes for a job to finish
+const maxJobTimeoutMinutes = 5
+
+// manifestSourceFunc is a factory function that produces a "manifest source" object.
+// For the standard (package-based) flow it simply returns a pre-built *manifest.Manifest.
+// For bootc it reconstructs the manifest from BootcInfoResolve results.
+type manifestSourceFunc func() (*manifest.Manifest, error)
 
 // serializeManifestFunc is used to serialize the manifest
 // it can be overridden for testing
@@ -95,6 +109,13 @@ func NewServer(workers *worker.Server, distros *distrofactory.Factory, repos *re
 		goroutinesCtx:       ctx,
 		goroutinesCtxCancel: cancel,
 	}
+
+	server.goroutinesGroup.Add(1)
+	go func() {
+		defer server.goroutinesGroup.Done()
+		server.bootcPreManifestLoop()
+	}()
+
 	return server
 }
 
@@ -169,6 +190,7 @@ type manifestJobDependencies struct {
 	depsolveJobID         uuid.UUID
 	containerResolveJobID uuid.UUID
 	ostreeResolveJobID    uuid.UUID
+	bootcInfoResolveJobID uuid.UUID
 }
 
 // IDs returns a slice of the non-nil job IDs.
@@ -182,6 +204,9 @@ func (mjd manifestJobDependencies) IDs() []uuid.UUID {
 	}
 	if mjd.ostreeResolveJobID != uuid.Nil {
 		ids = append(ids, mjd.ostreeResolveJobID)
+	}
+	if mjd.bootcInfoResolveJobID != uuid.Nil {
+		ids = append(ids, mjd.bootcInfoResolveJobID)
 	}
 	return ids
 }
@@ -227,7 +252,7 @@ func (s *Server) enqueueResolveJobs(manifestSource *manifest.Manifest, it distro
 			PipelineSpecs: pipelineSpecs,
 		}
 
-		containerResolveJobID, err := s.workers.EnqueueContainerResolveJob(&job, channel)
+		containerResolveJobID, err := s.workers.EnqueueContainerResolveJob(&job, nil, channel)
 		if err != nil {
 			return jobDependencies, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
 		}
@@ -291,22 +316,21 @@ func (s *Server) enqueueCompose(irs []imageRequest, channel string) (uuid.UUID, 
 		return id, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
 	}
 
-	id, err = s.workers.EnqueueOSBuildAsDependency(ir.imageType.Arch().Name(), &worker.OSBuildJob{
-		Targets: ir.targets,
-		PipelineNames: &worker.PipelineNames{
-			Build:   manifestSource.BuildPipelines(),
-			Payload: manifestSource.PayloadPipelines(),
-		},
-	}, []uuid.UUID{manifestJobID}, channel)
+	id, err = s.workers.EnqueueOSBuildAsDependency(
+		ir.imageType.Arch().Name(), &worker.OSBuildJob{Targets: ir.targets}, []uuid.UUID{manifestJobID}, channel,
+	)
 	if err != nil {
 		logrus.Warningf("ErrorEnqueueingJob, failed creating osbuild job: %v", err)
 		return id, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
 	}
 
+	getManifestSource := func() (*manifest.Manifest, error) {
+		return manifestSource, nil
+	}
 	s.goroutinesGroup.Add(1)
 	go func() {
-		serializeManifestFunc(s.goroutinesCtx, manifestSource, s.workers, dependencies, manifestJobID, ir.manifestSeed)
 		defer s.goroutinesGroup.Done()
+		serializeManifestFunc(s.goroutinesCtx, getManifestSource, s.workers, dependencies, manifestJobID, ir.manifestSeed)
 	}()
 
 	return id, nil
@@ -357,11 +381,9 @@ func (s *Server) enqueueComposeIBCLI(irs []imageRequest, channel string) (uuid.U
 	}
 	logrus.Debugf("manifest job enqueued: %v", manifestJobID)
 
-	osbuildJobID, err = s.workers.EnqueueOSBuildAsDependency(arch.Name(),
-		&worker.OSBuildJob{
-			Targets:       ir.targets,
-			PipelineNames: nil, // NOTE: the manifest job result provides these when they're not available from the osbuild job args
-		}, []uuid.UUID{manifestJobID}, channel)
+	osbuildJobID, err = s.workers.EnqueueOSBuildAsDependency(
+		arch.Name(), &worker.OSBuildJob{Targets: ir.targets}, []uuid.UUID{manifestJobID}, channel,
+	)
 	if err != nil {
 		return osbuildJobID, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
 	}
@@ -430,10 +452,6 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 		}
 
 		buildID, err := s.workers.EnqueueOSBuildAsDependency(archName, &worker.OSBuildJob{
-			PipelineNames: &worker.PipelineNames{
-				Build:   manifestSource.BuildPipelines(),
-				Payload: manifestSource.PayloadPipelines(),
-			},
 			Targets:            targets,
 			ManifestDynArgsIdx: common.ToPtr(1),
 			DepsolveDynArgsIdx: common.ToPtr(2),
@@ -445,11 +463,14 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 		kojiFilenames = append(kojiFilenames, kojiFilename)
 		buildIDs = append(buildIDs, buildID)
 
-		// copy the image request while passing it into the goroutine to prevent data races
+		getManifestSource := func() (*manifest.Manifest, error) {
+			return manifestSource, nil
+		}
 		s.goroutinesGroup.Add(1)
+		// copy the image request while passing it into the goroutine to prevent data races
 		go func(ir imageRequest) {
-			serializeManifestFunc(s.goroutinesCtx, manifestSource, s.workers, dependencies, manifestJobID, ir.manifestSeed)
 			defer s.goroutinesGroup.Done()
+			serializeManifestFunc(s.goroutinesCtx, getManifestSource, s.workers, dependencies, manifestJobID, ir.manifestSeed)
 		}(ir)
 	}
 	id, err = s.workers.EnqueueKojiFinalize(&worker.KojiFinalizeJob{
@@ -469,6 +490,72 @@ func (s *Server) enqueueKojiCompose(taskID uint64, server, name, version, releas
 	return id, nil
 }
 
+// buildBootcManifestSource reconstructs a manifest source from resolved bootc info.
+func buildBootcManifestSource(
+	baseInfoIdx int,
+	buildInfoIdx *int,
+	bootcInfoResult worker.BootcInfoResolveJobResult,
+	imageTypeName string,
+	bp *blueprint.Blueprint,
+	imageOptions distro.ImageOptions,
+	seed int64,
+) (*manifest.Manifest, error) {
+
+	if bootcInfoResult.JobError != nil {
+		return nil, fmt.Errorf("bootc info resolve dependency failed: %s", bootcInfoResult.JobError.Reason)
+	}
+	if len(bootcInfoResult.Infos) == 0 {
+		return nil, fmt.Errorf("bootc info resolve result has no infos")
+	}
+
+	if baseInfoIdx < 0 || baseInfoIdx >= len(bootcInfoResult.Infos) {
+		return nil, fmt.Errorf("base info index %d is out of range (resolved %d infos)", baseInfoIdx, len(bootcInfoResult.Infos))
+	}
+
+	baseInfo, err := bootcInfoResult.Infos[baseInfoIdx].ToVendor()
+	if err != nil {
+		return nil, fmt.Errorf("converting bootc base info to vendor type: %w", err)
+	}
+
+	var buildInfo *bootc.Info
+	if buildInfoIdx != nil {
+		if *buildInfoIdx < 0 || *buildInfoIdx >= len(bootcInfoResult.Infos) {
+			return nil, fmt.Errorf("build info index %d is out of range (resolved %d infos)", *buildInfoIdx, len(bootcInfoResult.Infos))
+		}
+		buildInfo, err = bootcInfoResult.Infos[*buildInfoIdx].ToVendor()
+		if err != nil {
+			return nil, fmt.Errorf("converting bootc build info to vendor type: %w", err)
+		}
+	}
+
+	bootcDistro, err := generic.NewBootc("bootc", baseInfo)
+	if err != nil {
+		return nil, fmt.Errorf("creating bootc distro: %w", err)
+	}
+	if buildInfo != nil {
+		if err := bootcDistro.SetBuildContainer(buildInfo); err != nil {
+			return nil, fmt.Errorf("setting build container: %w", err)
+		}
+	}
+	canonicalArch, err := arch.FromString(baseInfo.Arch)
+	if err != nil {
+		return nil, fmt.Errorf("invalid arch %q: %w", baseInfo.Arch, err)
+	}
+	archi, err := bootcDistro.GetArch(canonicalArch.String())
+	if err != nil {
+		return nil, fmt.Errorf("getting arch %q: %w", canonicalArch.String(), err)
+	}
+	imgType, err := archi.GetImageType(imageTypeName)
+	if err != nil {
+		return nil, fmt.Errorf("getting image type %q: %w", imageTypeName, err)
+	}
+	manifestSource, _, err := imgType.Manifest(bp, imageOptions, nil, &seed)
+	if err != nil {
+		return nil, fmt.Errorf("generating manifest: %w", err)
+	}
+	return manifestSource, nil
+}
+
 func (s *Server) enqueueBootcCompose(request ComposeRequest, channel string) (uuid.UUID, error) {
 	var ir ImageRequest
 	if request.ImageRequest != nil {
@@ -480,17 +567,6 @@ func (s *Server) enqueueBootcCompose(request ComposeRequest, channel string) (uu
 	}
 
 	bp, err := request.GetBlueprint()
-	if err != nil {
-		return uuid.Nil, err
-	}
-
-	mani, err := s.workers.EnqueueBootcManifestJob(&worker.BootcManifestJob{
-		Ref:       request.Bootc.Reference,
-		BuildRef:  request.Bootc.Reference,
-		Arch:      ir.Architecture,
-		ImageType: imageTypeFromApiImageType(ir.ImageType),
-		Blueprint: bp,
-	}, channel)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -507,28 +583,135 @@ func (s *Server) enqueueBootcCompose(request ComposeRequest, channel string) (uu
 		target.NewWorkerServerTarget(),
 	}
 
+	imageTypeName := imageTypeFromApiImageType(ir.ImageType)
+
 	// TODO: Hardcoding this is obviously a very bad hack, but currently this image type
 	// information isn't retrievable from images without running the bootc container.
-	if imageTypeFromApiImageType(ir.ImageType) == "qcow2" {
+	if imageTypeName == "qcow2" {
 		tgts[0].ImageName = "disk.qcow2"
 		tgts[0].OsbuildArtifact.ExportFilename = "disk.qcow2"
 		tgts[0].OsbuildArtifact.ExportName = "qcow2"
 	} else {
 		return uuid.Nil, HTTPErrorWithDetails(ErrorUnsupportedImageType, nil, "only qcow2 (guest-image) is supported for bootc composes")
 	}
-	id, err := s.workers.EnqueueOSBuildAsDependency(ir.Architecture, &worker.OSBuildJob{
-		Targets: tgts,
-	}, []uuid.UUID{mani}, channel)
+
+	// Generate a manifest seed using crypto/rand, same approach as
+	// GetImageRequests (compose.go). Must be the same for both
+	// BootcPreManifest and ManifestByID so they produce identical manifests.
+	bigSeed, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, HTTPError(ErrorFailedToGenerateManifestSeed)
+	}
+	seed := bigSeed.Int64()
+
+	// Construct ImageOptions once — used by both BootcPreManifest and ManifestByID.
+	// UseRemoteContainerSource: on-prem uses local podman storage (false).
+	imageOptions := distro.ImageOptions{
+		Bootc: &distro.BootcImageOptions{
+			UseRemoteContainerSource: false,
+		},
 	}
 
-	return id, nil
+	// 1. Handle Bootc info resolution job
+	bootcInfoResolveSpecs := []worker.BootcInfoResolveJobSpec{
+		// base container
+		{
+			Ref:         request.Bootc.Reference,
+			ResolveMode: worker.BootcInfoResolveModeFull,
+		},
+	}
+
+	// TODO: Add BuildReference to the Bootc API struct and add it here
+	// to bootcInfoResolveSpecs to support separate build containers.
+	// For now, base == build.
+
+	bootcInfoResolveJobID, err := s.workers.EnqueueBootcInfoResolveJob(ir.Architecture, &worker.BootcInfoResolveJob{
+		Specs: bootcInfoResolveSpecs,
+	}, channel)
+	if err != nil {
+		return uuid.Nil, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
+	}
+
+	// 2. Enqueue BootcPreManifest (server-side job, depends on bootc info resolve)
+	preManifestDeps := []uuid.UUID{bootcInfoResolveJobID}
+	preManifestArgs := &worker.BootcPreManifestJob{
+		ImageType:                  imageTypeName,
+		Blueprint:                  bp,
+		ImageOptions:               imageOptions,
+		Seed:                       seed,
+		BootcInfoResolveDynArgsIdx: common.ToPtr(0), // dynArgs[0] = BootcInfoResolve
+		BaseInfoIdx:                0,               // base container info index within the BootcInfoResolve job result infos slice
+	}
+	preManifestJobID, err := s.workers.EnqueueBootcPreManifestJob(preManifestArgs, preManifestDeps, channel)
+	if err != nil {
+		return uuid.Nil, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
+	}
+
+	// 3. Enqueue container resolve job with empty args, depending on BootcPreManifest.
+	//    The container specs come from BootcPreManifest result via dynArgs[0].
+	containerResolveJobID, err := s.workers.EnqueueContainerResolveJob(
+		&worker.ContainerResolveJob{
+			PreManifestDynArgsIdx: common.ToPtr(0),
+		},
+		[]uuid.UUID{preManifestJobID},
+		channel,
+	)
+	if err != nil {
+		return uuid.Nil, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
+	}
+
+	// No depsolve job — bootc images are self-contained, all content comes from containers.
+
+	// 4. Enqueue ManifestByID (server-side job)
+	//    Dependencies: [containerResolve, bootcInfoResolve]
+	//    Bootc mode is detected by dependencies.bootcInfoResolveJobID != uuid.Nil.
+	dependencies := manifestJobDependencies{
+		// depsolveJobID: uuid.Nil — no depsolve for bootc
+		containerResolveJobID: containerResolveJobID,
+		bootcInfoResolveJobID: bootcInfoResolveJobID,
+	}
+
+	manifestJobID, err := s.workers.EnqueueManifestJobByID(
+		&worker.ManifestJobByID{},
+		dependencies.IDs(),
+		channel,
+	)
+	if err != nil {
+		return uuid.Nil, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
+	}
+
+	// 5. Enqueue OSBuild (worker job, depends on ManifestByID)
+	osbuildJobID, err := s.workers.EnqueueOSBuildAsDependency(ir.Architecture, &worker.OSBuildJob{
+		Targets: tgts,
+	}, []uuid.UUID{manifestJobID}, channel)
+	if err != nil {
+		return uuid.Nil, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
+	}
+
+	// 6. Start ManifestByID server-side goroutine.
+	baseInfoIdx := preManifestArgs.BaseInfoIdx
+	buildInfoIdx := preManifestArgs.BuildInfoIdx
+	getManifestSource := func() (*manifest.Manifest, error) {
+		var bootcInfoResult worker.BootcInfoResolveJobResult
+		_, err := s.workers.BootcInfoResolveJobInfo(dependencies.bootcInfoResolveJobID, &bootcInfoResult)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read bootc info resolve job result: %w", err)
+		}
+
+		return buildBootcManifestSource(baseInfoIdx, buildInfoIdx, bootcInfoResult, imageTypeName, &bp, imageOptions, seed)
+	}
+	s.goroutinesGroup.Add(1)
+	go func() {
+		defer s.goroutinesGroup.Done()
+		serializeManifestFunc(s.goroutinesCtx, getManifestSource, s.workers, dependencies, manifestJobID, seed)
+	}()
+
+	return osbuildJobID, nil
 }
 
-func serializeManifest(ctx context.Context, manifestSource *manifest.Manifest, workers *worker.Server, dependencies manifestJobDependencies, manifestJobID uuid.UUID, seed int64) {
+func serializeManifest(ctx context.Context, getManifestSource manifestSourceFunc, workers *worker.Server, dependencies manifestJobDependencies, manifestJobID uuid.UUID, seed int64) {
 	// prepared to become a config variable
-	ctx, cancel := context.WithTimeout(ctx, time.Minute*depsolveTimeoutMin)
+	ctx, cancel := context.WithTimeout(ctx, time.Minute*maxJobTimeoutMinutes)
 	defer cancel()
 
 	jobResult := &worker.ManifestJobByIDResult{
@@ -554,27 +737,16 @@ func serializeManifest(ctx context.Context, manifestSource *manifest.Manifest, w
 			if jobResult.JobError != nil {
 				// set all jobs to "failed"
 				// osbuild job will fail as dependency
-				jobs := []struct {
-					Name string
-					ID   uuid.UUID
-				}{
-					{"depsolve", dependencies.depsolveJobID},
-					{"containerResolve", dependencies.containerResolveJobID},
-					{"ostreeResolve", dependencies.ostreeResolveJobID},
-					{"manifest", manifestJobID},
-				}
-
-				for _, job := range jobs {
-					if job.ID != uuid.Nil {
-						err := workers.SetFailed(job.ID, jobResult.JobError)
-						if err != nil {
-							logWithId.Errorf("Error failing %s job: %v", job.Name, err)
-						}
+				allJobIDs := slices.Concat(dependencies.IDs(), []uuid.UUID{manifestJobID})
+				for _, jobID := range allJobIDs {
+					err := workers.SetFailed(jobID, jobResult.JobError)
+					if err != nil {
+						logWithId.Errorf("Error failing job %s: %v", jobID, err)
 					}
 				}
 
 			} else {
-				logWithId.Errorf("Internal error, no worker started depsolve but we didn't get a reason.")
+				logWithId.Errorf("Internal error, no worker started processing dependencies but we didn't get a reason.")
 			}
 		} else {
 			result, err := json.Marshal(jobResult)
@@ -595,15 +767,15 @@ func serializeManifest(ctx context.Context, manifestSource *manifest.Manifest, w
 	for {
 		_, token, _, _, dynArgs, err = workers.RequestJobById(ctx, "", manifestJobID)
 		if errors.Is(err, jobqueue.ErrNotPending) {
-			logWithId.Debug("Manifest job not pending, waiting for depsolve job to finish")
+			logWithId.Debug("Manifest job not pending, waiting for dependencies to finish")
 			time.Sleep(time.Millisecond * 50)
 			select {
 			case <-ctx.Done():
 				logWithId.Warning(fmt.Sprintf("Manifest job dependencies took longer than %d minutes to finish,"+
-					" or the server is shutting down, returning to avoid dangling routines", depsolveTimeoutMin))
+					" or the server is shutting down, returning to avoid dangling routines", maxJobTimeoutMinutes))
 
-				jobResult.JobError = clienterrors.New(clienterrors.ErrorDepsolveTimeout,
-					"Timeout while waiting for package dependency resolution",
+				jobResult.JobError = clienterrors.New(clienterrors.ErrorJobDependency,
+					"Timeout while waiting for dependencies to finish",
 					"There may be a temporary issue with compute resources.",
 				)
 				break
@@ -616,6 +788,16 @@ func serializeManifest(ctx context.Context, manifestSource *manifest.Manifest, w
 			return
 		}
 		break
+	}
+
+	// Obtain the manifest source via the factory function.
+	// For the standard flow this simply returns the pre-built manifest.
+	// For bootc this reconstructs it from BootcInfoResolve results.
+	manifestSource, err := getManifestSource()
+	if err != nil {
+		reason := "Error obtaining manifest source"
+		jobResult.JobError = clienterrors.New(clienterrors.ErrorManifestGeneration, reason, err.Error())
+		return
 	}
 
 	// add osbuild/images dependency info to job result
@@ -635,33 +817,36 @@ func serializeManifest(ctx context.Context, manifestSource *manifest.Manifest, w
 		return
 	}
 
-	var depsolveJobResult worker.DepsolveJobResult
-	err = json.Unmarshal(dynArgs[0], &depsolveJobResult)
-	if err != nil {
-		reason := "Error parsing dynamic arguments"
-		jobResult.JobError = clienterrors.New(clienterrors.ErrorParsingDynamicArgs, reason, nil)
-		return
-	}
-
-	_, err = workers.DepsolveJobInfo(dependencies.depsolveJobID, &depsolveJobResult)
-	if err != nil {
-		reason := "Error reading depsolve status"
-		jobResult.JobError = clienterrors.New(clienterrors.ErrorReadingJobStatus, reason, nil)
-		return
-	}
-
-	if jobErr := depsolveJobResult.JobError; jobErr != nil {
-		if jobErr.ID == clienterrors.ErrorDNFDepsolveError || jobErr.ID == clienterrors.ErrorDNFMarkingErrors {
-			jobResult.JobError = clienterrors.New(clienterrors.ErrorDepsolveDependency, "Error in depsolve job dependency input, bad package set requested", jobErr.Details)
+	var depsolveResult map[string]depsolvednf.DepsolveResult
+	if dependencies.depsolveJobID != uuid.Nil {
+		var depsolveJobResult worker.DepsolveJobResult
+		_, err = workers.DepsolveJobInfo(dependencies.depsolveJobID, &depsolveJobResult)
+		if err != nil {
+			reason := "Error reading depsolve status"
+			jobResult.JobError = clienterrors.New(clienterrors.ErrorReadingJobStatus, reason, nil)
 			return
 		}
-		jobResult.JobError = clienterrors.New(clienterrors.ErrorDepsolveDependency, "Error in depsolve job dependency", jobErr.Details)
-		return
-	}
 
-	if len(depsolveJobResult.PackageSpecs) == 0 {
-		jobResult.JobError = clienterrors.New(clienterrors.ErrorEmptyPackageSpecs, "Received empty package specs", nil)
-		return
+		if jobErr := depsolveJobResult.JobError; jobErr != nil {
+			if jobErr.ID == clienterrors.ErrorDNFDepsolveError || jobErr.ID == clienterrors.ErrorDNFMarkingErrors {
+				jobResult.JobError = clienterrors.New(clienterrors.ErrorDepsolveDependency, "Error in depsolve job dependency input, bad package set requested", jobErr.Details)
+				return
+			}
+			jobResult.JobError = clienterrors.New(clienterrors.ErrorDepsolveDependency, "Error in depsolve job dependency", jobErr.Details)
+			return
+		}
+
+		if len(depsolveJobResult.PackageSpecs) == 0 {
+			jobResult.JobError = clienterrors.New(clienterrors.ErrorEmptyPackageSpecs, "Received empty package specs", nil)
+			return
+		}
+
+		depsolveResult, err = depsolveJobResult.ToDepsolvednfResult()
+		if err != nil {
+			reason := "Error converting depsolve result"
+			jobResult.JobError = clienterrors.New(clienterrors.ErrorManifestGeneration, reason, err.Error())
+			return
+		}
 	}
 
 	var containerSpecs map[string][]container.Spec
@@ -742,12 +927,6 @@ func serializeManifest(ctx context.Context, manifestSource *manifest.Manifest, w
 		}
 	}
 
-	depsolveResult, err := depsolveJobResult.ToDepsolvednfResult()
-	if err != nil {
-		reason := "Error converting depsolve result"
-		jobResult.JobError = clienterrors.New(clienterrors.ErrorManifestGeneration, reason, err.Error())
-		return
-	}
 	ms, err := manifestSource.Serialize(depsolveResult, containerSpecs, ostreeCommitSpecs, nil)
 	if err != nil {
 		reason := "Error serializing manifest"
@@ -756,4 +935,186 @@ func serializeManifest(ctx context.Context, manifestSource *manifest.Manifest, w
 	}
 
 	jobResult.Manifest = ms
+	jobResult.ManifestInfo.PipelineNames = &worker.PipelineNames{
+		Build:   manifestSource.BuildPipelines(),
+		Payload: manifestSource.PayloadPipelines(),
+	}
+}
+
+// bootcPreManifestLoop is a long-running goroutine started at server init
+// that picks up pending BootcPreManifest jobs via RequestJob and spawns a
+// goroutine per job for parallel processing.
+func (s *Server) bootcPreManifestLoop() {
+	const maxConcurrentPreManifestJobs = 8
+	sem := make(chan struct{}, maxConcurrentPreManifestJobs)
+
+	// exponential backoff for dequeue errors
+	backoff := time.Second
+	const maxBackoff = 30 * time.Second
+
+	for {
+		sem <- struct{}{}
+
+		// Pass empty channel for on-prem (no tenant).
+		// TODO: Multi-tenant deployments with JWT-based channels will need this
+		// updated to enumerate tenant channels or use a different mechanism.
+		jobID, token, _, staticArgs, dynArgs, err := s.workers.RequestJob(
+			s.goroutinesCtx, "", []string{worker.JobTypeBootcPreManifest}, []string{""}, uuid.Nil,
+		)
+		if err != nil {
+			<-sem // release on error
+			if s.goroutinesCtx.Err() != nil {
+				return // server shutting down
+			}
+			if !errors.Is(err, jobqueue.ErrDequeueTimeout) && !errors.Is(err, jobqueue.ErrNotPending) {
+				select {
+				case <-time.After(backoff):
+				case <-s.goroutinesCtx.Done():
+					return
+				}
+				backoff = min(backoff*2, maxBackoff)
+			}
+			continue
+		}
+
+		backoff = time.Second // reset on success
+
+		s.goroutinesGroup.Add(1)
+		go func() {
+			defer func() { <-sem }()
+			defer s.goroutinesGroup.Done()
+			handleBootcPreManifest(s.workers, jobID, token, staticArgs, dynArgs)
+		}()
+	}
+}
+
+// handleBootcPreManifest processes a single BootcPreManifest job. The goal is to
+// generate a pre-manifest from resolved bootc container to get the sources for
+// downstream resolve jobs.
+//
+// The job is processed in the following steps:
+// 1. Reads resolved bootc container info from dynArgs.
+// 2. Creates a bootc distro.
+// 3. Generates a pre-manifest.
+// 4. Extracts container source specs for downstream resolve jobs.
+// 5. Validates that the bootc image type does not unexpectedly require packages or ostree commits.
+func handleBootcPreManifest(
+	workers *worker.Server,
+	jobID uuid.UUID,
+	token uuid.UUID,
+	staticArgs json.RawMessage,
+	dynArgs []json.RawMessage,
+) {
+	logWithId := logrus.WithField("jobId", jobID)
+
+	var preManifestResult worker.BootcPreManifestJobResult
+	defer func() {
+		if r := recover(); r != nil {
+			logWithId.Errorf("Recovered from panic in handleBootcPreManifest: %v", r)
+			preManifestResult.JobError = clienterrors.New(clienterrors.ErrorJobPanicked, "Error extracting sources from pre-manifest", r)
+		}
+
+		result, err := json.Marshal(preManifestResult)
+		if err != nil {
+			logWithId.Errorf("Error marshalling bootc pre-manifest result: %v", err)
+		}
+		if err := workers.FinishJob(token, result); err != nil {
+			logWithId.Errorf("Error finishing bootc pre-manifest job: %v", err)
+		}
+	}()
+
+	var preManifestArgs worker.BootcPreManifestJob
+	if err := json.Unmarshal(staticArgs, &preManifestArgs); err != nil {
+		preManifestResult.JobError = clienterrors.New(
+			clienterrors.ErrorParsingJobArgs,
+			"Error parsing bootc pre-manifest job args: "+err.Error(), nil,
+		)
+		return
+	}
+
+	// Validate dynarg index for the bootc info resolve result
+	bootcIRArgsIdx := preManifestArgs.BootcInfoResolveDynArgsIdx
+	if bootcIRArgsIdx == nil || *bootcIRArgsIdx < 0 || *bootcIRArgsIdx >= len(dynArgs) {
+		preManifestResult.JobError = clienterrors.New(
+			clienterrors.ErrorParsingDynamicArgs,
+			"BootcInfoResolveDynArgsIdx is missing or out of range", nil,
+		)
+		return
+	}
+	var bootcInfoResult worker.BootcInfoResolveJobResult
+	if err := json.Unmarshal(dynArgs[*preManifestArgs.BootcInfoResolveDynArgsIdx], &bootcInfoResult); err != nil {
+		preManifestResult.JobError = clienterrors.New(
+			clienterrors.ErrorParsingDynamicArgs,
+			"Error parsing bootc info resolve result: "+err.Error(), nil,
+		)
+		return
+	}
+
+	// Generate pre-manifest.
+	// Bootc image types ignore the repos parameter (all content comes from
+	// containers), so nil is safe here.
+	baseInfoIdx := preManifestArgs.BaseInfoIdx
+	buildInfoIdx := preManifestArgs.BuildInfoIdx
+	manifestSource, err := buildBootcManifestSource(baseInfoIdx, buildInfoIdx, bootcInfoResult, preManifestArgs.ImageType, &preManifestArgs.Blueprint, preManifestArgs.ImageOptions, preManifestArgs.Seed)
+	if err != nil {
+		preManifestResult.JobError = clienterrors.New(
+			clienterrors.ErrorManifestGeneration,
+			"Error generating bootc pre-manifest: "+err.Error(), nil,
+		)
+		return
+	}
+
+	// Bootc images should not require package depsolving or ostree commits.
+	// All content comes from containers. Error if the pre-manifest unexpectedly
+	// requests these - it means something is wrong with the image type definition.
+	pkgSets, _ := manifestSource.GetPackageSetChains()
+	if len(pkgSets) > 0 {
+		preManifestResult.JobError = clienterrors.New(
+			clienterrors.ErrorManifestGeneration,
+			"bootc pre-manifest unexpectedly requires package depsolving", nil,
+		)
+		return
+	}
+	ostreeSources := manifestSource.GetOSTreeSourceSpecs()
+	if len(ostreeSources) > 0 {
+		preManifestResult.JobError = clienterrors.New(
+			clienterrors.ErrorManifestGeneration,
+			"bootc pre-manifest unexpectedly requires ostree commit resolution", nil,
+		)
+		return
+	}
+
+	// Extract content sources into result
+	// Container sources - build ContainerResolveJob args from manifest content specs
+	containerSources := manifestSource.GetContainerSourceSpecs()
+
+	// Bootc image manifests should always return at least one container source.
+	if len(containerSources) == 0 {
+		preManifestResult.JobError = clienterrors.New(
+			clienterrors.ErrorManifestGeneration,
+			"bootc pre-manifest unexpectedly didn't return any container sources", nil,
+		)
+		return
+	}
+
+	pipelineContainerSpecs := make(map[string][]worker.ContainerSpec, len(containerSources))
+	for name, pipelineSources := range containerSources {
+		pipelineContainerSpecs[name] = make([]worker.ContainerSpec, len(pipelineSources))
+		for i, source := range pipelineSources {
+			pipelineContainerSpecs[name][i] = worker.ContainerSpecFromVendorSourceSpec(source)
+		}
+	}
+	canonicalArch, err := arch.FromString(bootcInfoResult.Infos[baseInfoIdx].Arch)
+	if err != nil {
+		preManifestResult.JobError = clienterrors.New(
+			clienterrors.ErrorManifestGeneration,
+			fmt.Sprintf("Error parsing the architecture %q from bootc info: %s", bootcInfoResult.Infos[baseInfoIdx].Arch, err.Error()),
+			nil,
+		)
+		return
+	}
+	preManifestResult.ContainerResolveJobArgs = &worker.ContainerResolveJob{
+		Arch:          canonicalArch.String(),
+		PipelineSpecs: pipelineContainerSpecs,
+	}
 }
