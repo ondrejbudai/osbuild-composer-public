@@ -882,6 +882,18 @@ type OSBuildComposerDepModule struct {
 	Replace *OSBuildComposerDepModule `json:"replace,omitempty"`
 }
 
+// Equal reports whether m and other are structurally identical,
+// comparing Path, Version, and Replace recursively. Two nil pointers are equal.
+func (m *OSBuildComposerDepModule) Equal(other *OSBuildComposerDepModule) bool {
+	if m == other {
+		return true
+	}
+	if m == nil || other == nil {
+		return false
+	}
+	return m.Path == other.Path && m.Version == other.Version && m.Replace.Equal(other.Replace)
+}
+
 // ComposerDepModuleFromDebugModule converts a debug.Module instance
 // to an OSBuildComposerDepModule instance.
 func ComposerDepModuleFromDebugModule(module *debug.Module) *OSBuildComposerDepModule {
@@ -899,6 +911,52 @@ func ComposerDepModuleFromDebugModule(module *debug.Module) *OSBuildComposerDepM
 		}
 	}
 	return depModule
+}
+
+// equalComposerDepModules compares two slices of OSBuildComposerDepModule for equality.
+// Two nil/empty slices are considered equal. Order matters.
+func equalComposerDepModules(upstream, local []*OSBuildComposerDepModule) bool {
+	if len(upstream) != len(local) {
+		return false
+	}
+	for i := range upstream {
+		if !upstream[i].Equal(local[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// CompareManifestInfos compares two ManifestInfo structs from two manifest
+// generation contexts. It returns a clienterrors.Error with
+// ErrorBuildVersionMismatch if the build versions or dependency module info
+// differ, or nil if they match.
+//
+// Comparison semantics: fields are compared by value equality. If a field is
+// empty/nil on both sides, it is considered equal (both contexts lacked the
+// info). If a field is present on one side but not the other, it is a mismatch.
+// PipelineNames are excluded from comparison — if the version and deps match,
+// pipeline names are structurally guaranteed to match.
+func CompareManifestInfos(upstream, local ManifestInfo) *clienterrors.Error {
+	versionMatch := upstream.OSBuildComposerVersion == local.OSBuildComposerVersion
+	depsMatch := equalComposerDepModules(upstream.OSBuildComposerDeps, local.OSBuildComposerDeps)
+
+	if versionMatch && depsMatch {
+		return nil
+	}
+
+	details := map[string]interface{}{
+		"upstream_version": upstream.OSBuildComposerVersion,
+		"local_version":    local.OSBuildComposerVersion,
+		"upstream_deps":    upstream.OSBuildComposerDeps,
+		"local_deps":       local.OSBuildComposerDeps,
+	}
+
+	return clienterrors.New(
+		clienterrors.ErrorBuildVersionMismatch,
+		"Two jobs in the pipeline generated manifests on different composer builds",
+		details,
+	)
 }
 
 // ManifestInfo contains information about the environment in which
@@ -1296,6 +1354,14 @@ type BootcPreManifestJob struct {
 type BootcPreManifestJobResult struct {
 	// Arguments for the downstream container resolve job.
 	ContainerResolveJobArgs *ContainerResolveJob `json:"container_resolve_job_args,omitempty"`
+
+	// ManifestInfo captures build information of the osbuild-composer instance
+	// that generated the source manifest in the pre-manifest job.
+	// This is important, since the osbuild-composer build version affects
+	// the manifest content and structure, thus also the sources specs that
+	// need to be resolved. This information can be used by parent jobs for
+	// detecting version mismatches during manifest serialization.
+	ManifestInfo ManifestInfo `json:"info,omitempty"`
 
 	JobResult
 }

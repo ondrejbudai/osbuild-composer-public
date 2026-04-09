@@ -191,6 +191,7 @@ type manifestJobDependencies struct {
 	containerResolveJobID uuid.UUID
 	ostreeResolveJobID    uuid.UUID
 	bootcInfoResolveJobID uuid.UUID
+	bootcPreManifestJobID uuid.UUID
 }
 
 // IDs returns a slice of the non-nil job IDs.
@@ -207,6 +208,9 @@ func (mjd manifestJobDependencies) IDs() []uuid.UUID {
 	}
 	if mjd.bootcInfoResolveJobID != uuid.Nil {
 		ids = append(ids, mjd.bootcInfoResolveJobID)
+	}
+	if mjd.bootcPreManifestJobID != uuid.Nil {
+		ids = append(ids, mjd.bootcPreManifestJobID)
 	}
 	return ids
 }
@@ -663,12 +667,13 @@ func (s *Server) enqueueBootcCompose(request ComposeRequest, channel string) (uu
 	// No depsolve job — bootc images are self-contained, all content comes from containers.
 
 	// 4. Enqueue ManifestByID (server-side job)
-	//    Dependencies: [containerResolve, bootcInfoResolve]
+	//    Dependencies: [containerResolve, bootcInfoResolve, bootcPreManifest]
 	//    Bootc mode is detected by dependencies.bootcInfoResolveJobID != uuid.Nil.
 	dependencies := manifestJobDependencies{
 		// depsolveJobID: uuid.Nil — no depsolve for bootc
 		containerResolveJobID: containerResolveJobID,
 		bootcInfoResolveJobID: bootcInfoResolveJobID,
+		bootcPreManifestJobID: preManifestJobID,
 	}
 
 	manifestJobID, err := s.workers.EnqueueManifestJobByID(
@@ -790,16 +795,6 @@ func serializeManifest(ctx context.Context, getManifestSource manifestSourceFunc
 		break
 	}
 
-	// Obtain the manifest source via the factory function.
-	// For the standard flow this simply returns the pre-built manifest.
-	// For bootc this reconstructs it from BootcInfoResolve results.
-	manifestSource, err := getManifestSource()
-	if err != nil {
-		reason := "Error obtaining manifest source"
-		jobResult.JobError = clienterrors.New(clienterrors.ErrorManifestGeneration, reason, err.Error())
-		return
-	}
-
 	// add osbuild/images dependency info to job result
 	osbuildImagesDep, err := common.GetDepModuleInfoByPath(common.OSBuildImagesModulePath)
 	if err != nil {
@@ -809,6 +804,39 @@ func serializeManifest(ctx context.Context, getManifestSource manifestSourceFunc
 	} else {
 		osbuildImagesDepModule := worker.ComposerDepModuleFromDebugModule(osbuildImagesDep)
 		jobResult.ManifestInfo.OSBuildComposerDeps = append(jobResult.ManifestInfo.OSBuildComposerDeps, osbuildImagesDepModule)
+	}
+
+	// If a pre-manifest job ran upstream (bootc flow), compare its ManifestInfo against
+	// the local ManifestInfo to detect version mismatches between composer instances.
+	if dependencies.bootcPreManifestJobID != uuid.Nil {
+		var preManifestResult worker.BootcPreManifestJobResult
+		_, err := workers.BootcPreManifestJobInfo(dependencies.bootcPreManifestJobID, &preManifestResult)
+		if err != nil {
+			reason := "Error reading pre-manifest job result for ManifestInfo build version check"
+			jobResult.JobError = clienterrors.New(clienterrors.ErrorReadingJobStatus, reason, err.Error())
+			return
+		}
+
+		if jobErr := preManifestResult.JobError; jobErr != nil {
+			jobResult.JobError = clienterrors.New(clienterrors.ErrorJobDependency, "Error in bootc pre-manifest job dependency", jobErr.Details)
+			return
+		}
+
+		if mismatchErr := worker.CompareManifestInfos(preManifestResult.ManifestInfo, jobResult.ManifestInfo); mismatchErr != nil {
+			logWithId.Errorf("ManifestInfo build version mismatch between pre-manifest and manifest jobs: %v", mismatchErr)
+			jobResult.JobError = mismatchErr
+			return
+		}
+	}
+
+	// Obtain the manifest source via the factory function.
+	// For the standard flow this simply returns the pre-built manifest.
+	// For bootc this reconstructs it from BootcInfoResolve results.
+	manifestSource, err := getManifestSource()
+	if err != nil {
+		reason := "Error obtaining manifest source"
+		jobResult.JobError = clienterrors.New(clienterrors.ErrorManifestGeneration, reason, err.Error())
+		return
 	}
 
 	if len(dynArgs) == 0 {
@@ -1062,6 +1090,31 @@ func handleBootcPreManifest(
 			"Error generating bootc pre-manifest: "+err.Error(), nil,
 		)
 		return
+	}
+
+	// Populate ManifestInfo with the build environment information.
+	// This information is used by parent jobs to detect version mismatches
+	// between composer instances that handled the pre-manifest job and the
+	// manifest job that serialized the manifest.
+	preManifestResult.ManifestInfo = worker.ManifestInfo{
+		OSBuildComposerVersion: common.BuildVersion(),
+		PipelineNames: &worker.PipelineNames{
+			Build:   manifestSource.BuildPipelines(),
+			Payload: manifestSource.PayloadPipelines(),
+		},
+	}
+
+	osbuildImagesDep, depErr := common.GetDepModuleInfoByPath(common.OSBuildImagesModulePath)
+	if depErr == nil {
+		preManifestResult.ManifestInfo.OSBuildComposerDeps = append(
+			preManifestResult.ManifestInfo.OSBuildComposerDeps,
+			worker.ComposerDepModuleFromDebugModule(osbuildImagesDep),
+		)
+	} else {
+		logWithId.Warnf(
+			"Could not get %s dependency info, skipping it in ManifestInfo: %v",
+			common.OSBuildImagesModulePath, depErr,
+		)
 	}
 
 	// Bootc images should not require package depsolving or ostree commits.
