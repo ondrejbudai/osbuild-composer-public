@@ -37,7 +37,8 @@ type JobQueue interface {
 	// Dequeues a job, blocking until one is available.
 	//
 	// Waits until a job with a type of any of `jobTypes` and any of `channels`
-	// is available, or `ctx` is canceled.
+	// is available, or `ctx` is canceled. If 'channels' is 'nil' or empty,
+	// no job will be matched and no job will be returned.
 	//
 	// Returns the job's id, token, dependencies, type, and arguments, or an error. Arguments
 	// can be unmarshaled to the type given in Enqueue().
@@ -48,6 +49,17 @@ type JobQueue interface {
 	// Returns the job's token, dependencies, type, and arguments, or an error. Arguments
 	// can be unmarshaled to the type given in Enqueue().
 	DequeueByID(ctx context.Context, id, workerID uuid.UUID) (uuid.UUID, []uuid.UUID, string, json.RawMessage, error)
+
+	// DequeueAnyChannel dequeues a job matching any of jobTypes regardless
+	// of the channel the job was enqueued with. Blocks until one is
+	// available or ctx is canceled.
+	//
+	// This is intended for server-side jobs that must be processed by the
+	// server itself, not by tenant-scoped workers.
+	//
+	// Returns the job's id, token, dependencies, type, and arguments, or
+	// an error.
+	DequeueAnyChannel(ctx context.Context, workerID uuid.UUID, jobTypes []string) (uuid.UUID, uuid.UUID, []uuid.UUID, string, json.RawMessage, error)
 
 	// Updates the result of a job without finishing it
 	//

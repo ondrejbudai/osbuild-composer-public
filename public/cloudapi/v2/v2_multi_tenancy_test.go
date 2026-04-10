@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
 	"github.com/openshift-online/ocm-sdk-go/authentication"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ondrejbudai/osbuild-composer-public/pkg/jobqueue"
@@ -66,6 +68,21 @@ func s3Request() string {
 				}
 			]
 		}`, test_distro.TestDistro1Name, test_distro.TestArch3Name, string(v2.ImageTypesGuestImage))
+}
+
+func bootcRequest() string {
+	return fmt.Sprintf(`
+		{
+			"bootc": {
+				"reference": "registry.org/centos-bootc:tag"
+			},
+			"image_request": {
+				"architecture": "%s",
+				"repositories": [],
+				"image_type": "guest-image",
+				"upload_options": {}
+			}
+		}`, test_distro.TestArch3Name)
 }
 
 var reqContextCallCount = 0
@@ -363,4 +380,69 @@ func TestMultitenancy(t *testing.T) {
 			}.Do(t)
 		}
 	}
+}
+
+// TestBootcMultitenancyPreManifestProcessed verifies that bootc composes
+// submitted with a tenant channel have their BootcPreManifest job processed
+// by the bootcPreManifestLoop, which uses RequestJobAnyChannel to dequeue
+// jobs regardless of channel.
+func TestBootcMultitenancyPreManifestProcessed(t *testing.T) {
+	apiServer, workerServer, q, cancel := newV2Server(t, t.TempDir(), &v2ServerOpts{enableJWT: true})
+	handler := apiServer.Handler("/api/image-builder-composer/v2")
+	defer cancel()
+
+	orgID := "bootc-org-42"
+
+	// Submit a bootc compose with a tenant
+	composeID := scheduleRequest(t, handler, orgID, bootcRequest())
+
+	// Verify the compose's top-level job has the correct channel
+	_, _, _, channel, err := q.Job(composeID)
+	require.NoError(t, err)
+	require.Equal(t, "org-"+orgID, channel)
+
+	// Walk the job graph to find the BootcInfoResolve and BootcPreManifest jobs
+	allJobs := getAllJobsOfCompose(t, q, composeID)
+
+	var bootcInfoResolveJobID, preManifestJobID uuid.UUID
+	for _, jobID := range allJobs {
+		jobType, _, _, jobChannel, err := q.Job(jobID)
+		require.NoError(t, err)
+		// All jobs should be in the tenant channel
+		require.Equal(t, "org-"+orgID, jobChannel, "job %s (type %s) should have tenant channel", jobID, jobType)
+
+		switch {
+		// NOTE: BootcInfoResolve is arch-suffixed (e.g. "bootc-info-resolve:x86_64"), hence we use HasPrefix.
+		case strings.HasPrefix(jobType, worker.JobTypeBootcInfoResolve):
+			bootcInfoResolveJobID = jobID
+		case jobType == worker.JobTypeBootcPreManifest:
+			preManifestJobID = jobID
+		}
+	}
+	require.NotEqual(t, uuid.Nil, bootcInfoResolveJobID, "should have BootcInfoResolve job")
+	require.NotEqual(t, uuid.Nil, preManifestJobID, "should have BootcPreManifest job")
+
+	// Finish the BootcInfoResolve job so the BootcPreManifest dependency is met.
+	// Dequeue it using the tenant channel via the worker server directly.
+	_, infoToken, _, _, _, err := workerServer.RequestJob(
+		context.Background(), test_distro.TestArch3Name,
+		[]string{worker.JobTypeBootcInfoResolve}, []string{"org-" + orgID}, uuid.Nil,
+	)
+	require.NoError(t, err)
+	err = workerServer.FinishJob(infoToken, rawValidBaseBootcInfoResult(t))
+	require.NoError(t, err)
+
+	// Wait for the bootcPreManifestLoop to pick up and process the job.
+	// Poll with a timeout rather than a fixed sleep.
+	require.Eventually(t, func() bool {
+		_, _, _, _, started, _, _, _, _, err := q.JobStatus(preManifestJobID)
+		// NOTE: we can't use require.NoError, because require.Eventually runs the condition in a goroutine.
+		// require.NoError calls t.FailNow(), which must be called from the goroutine running the test or benchmark
+		// function, not from other goroutines created during the test
+		assert.NoError(t, err)
+		// Job should have been started by the loop
+		return !started.IsZero()
+	}, 5*time.Second, 50*time.Millisecond,
+		"BootcPreManifest job should have been started by bootcPreManifestLoop via RequestJobAnyChannel",
+	)
 }
