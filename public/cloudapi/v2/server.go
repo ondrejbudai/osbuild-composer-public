@@ -505,61 +505,61 @@ func buildBootcManifestSource(
 	bp *blueprint.Blueprint,
 	imageOptions distro.ImageOptions,
 	seed int64,
-) (*manifest.Manifest, error) {
+) (*manifest.Manifest, distro.ImageType, error) {
 
 	if bootcInfoResult.JobError != nil {
-		return nil, fmt.Errorf("bootc info resolve dependency failed: %s", bootcInfoResult.JobError.Reason)
+		return nil, nil, fmt.Errorf("bootc info resolve dependency failed: %s", bootcInfoResult.JobError.Reason)
 	}
 	if len(bootcInfoResult.Infos) == 0 {
-		return nil, fmt.Errorf("bootc info resolve result has no infos")
+		return nil, nil, fmt.Errorf("bootc info resolve result has no infos")
 	}
 
 	if baseInfoIdx < 0 || baseInfoIdx >= len(bootcInfoResult.Infos) {
-		return nil, fmt.Errorf("base info index %d is out of range (resolved %d infos)", baseInfoIdx, len(bootcInfoResult.Infos))
+		return nil, nil, fmt.Errorf("base info index %d is out of range (resolved %d infos)", baseInfoIdx, len(bootcInfoResult.Infos))
 	}
 
 	baseInfo, err := bootcInfoResult.Infos[baseInfoIdx].ToVendor()
 	if err != nil {
-		return nil, fmt.Errorf("converting bootc base info to vendor type: %w", err)
+		return nil, nil, fmt.Errorf("converting bootc base info to vendor type: %w", err)
 	}
 
 	var buildInfo *bootc.Info
 	if buildInfoIdx != nil {
 		if *buildInfoIdx < 0 || *buildInfoIdx >= len(bootcInfoResult.Infos) {
-			return nil, fmt.Errorf("build info index %d is out of range (resolved %d infos)", *buildInfoIdx, len(bootcInfoResult.Infos))
+			return nil, nil, fmt.Errorf("build info index %d is out of range (resolved %d infos)", *buildInfoIdx, len(bootcInfoResult.Infos))
 		}
 		buildInfo, err = bootcInfoResult.Infos[*buildInfoIdx].ToVendor()
 		if err != nil {
-			return nil, fmt.Errorf("converting bootc build info to vendor type: %w", err)
+			return nil, nil, fmt.Errorf("converting bootc build info to vendor type: %w", err)
 		}
 	}
 
 	bootcDistro, err := generic.NewBootc("bootc", baseInfo)
 	if err != nil {
-		return nil, fmt.Errorf("creating bootc distro: %w", err)
+		return nil, nil, fmt.Errorf("creating bootc distro: %w", err)
 	}
 	if buildInfo != nil {
 		if err := bootcDistro.SetBuildContainer(buildInfo); err != nil {
-			return nil, fmt.Errorf("setting build container: %w", err)
+			return nil, nil, fmt.Errorf("setting build container: %w", err)
 		}
 	}
 	canonicalArch, err := arch.FromString(baseInfo.Arch)
 	if err != nil {
-		return nil, fmt.Errorf("invalid arch %q: %w", baseInfo.Arch, err)
+		return nil, nil, fmt.Errorf("invalid arch %q: %w", baseInfo.Arch, err)
 	}
 	archi, err := bootcDistro.GetArch(canonicalArch.String())
 	if err != nil {
-		return nil, fmt.Errorf("getting arch %q: %w", canonicalArch.String(), err)
+		return nil, nil, fmt.Errorf("getting arch %q: %w", canonicalArch.String(), err)
 	}
 	imgType, err := archi.GetImageType(imageTypeName)
 	if err != nil {
-		return nil, fmt.Errorf("getting image type %q: %w", imageTypeName, err)
+		return nil, nil, fmt.Errorf("getting image type %q: %w", imageTypeName, err)
 	}
 	manifestSource, _, err := imgType.Manifest(bp, imageOptions, nil, &seed)
 	if err != nil {
-		return nil, fmt.Errorf("generating manifest: %w", err)
+		return nil, nil, fmt.Errorf("generating manifest: %w", err)
 	}
-	return manifestSource, nil
+	return manifestSource, imgType, nil
 }
 
 func (s *Server) enqueueBootcCompose(request ComposeRequest, channel string) (uuid.UUID, error) {
@@ -577,28 +577,60 @@ func (s *Server) enqueueBootcCompose(request ComposeRequest, channel string) (uu
 		return uuid.Nil, err
 	}
 
-	// Only local targets are supported
-	if ir.UploadTargets != nil {
-		for _, ut := range *ir.UploadTargets {
-			if ut.Type != UploadTypesLocal {
-				return uuid.Nil, HTTPError(ErrorInvalidUploadTarget)
-			}
-		}
-	}
-	tgts := []*target.Target{
-		target.NewWorkerServerTarget(),
-	}
-
 	imageTypeName := imageTypeFromApiImageType(ir.ImageType)
 
-	// TODO: Hardcoding this is obviously a very bad hack, but currently this image type
-	// information isn't retrievable from images without running the bootc container.
-	if imageTypeName == "qcow2" {
-		tgts[0].ImageName = "disk.qcow2"
-		tgts[0].OsbuildArtifact.ExportFilename = "disk.qcow2"
-		tgts[0].OsbuildArtifact.ExportName = "qcow2"
-	} else {
+	// TODO: Only qcow2 (guest-image) is supported for bootc composes for now.
+	if imageTypeName != "qcow2" {
 		return uuid.Nil, HTTPErrorWithDetails(ErrorUnsupportedImageType, nil, "only qcow2 (guest-image) is supported for bootc composes")
+	}
+
+	// Validate and normalize upload targets — consistent with non-bootc flow.
+	// Error if no targets provided.
+	if ir.UploadOptions == nil && (ir.UploadTargets == nil || len(*ir.UploadTargets) == 0) {
+		return uuid.Nil, HTTPError(ErrorJSONUnMarshallingError)
+	}
+
+	tsm := targetSupportMap()
+	var uploadTargetSpecs []worker.BootcUploadTarget
+
+	if ir.UploadTargets != nil {
+		for _, ut := range *ir.UploadTargets {
+			if !tsm[ut.Type][ir.ImageType] {
+				return uuid.Nil, HTTPErrorWithDetails(
+					ErrorInvalidUploadTarget, nil,
+					fmt.Sprintf("invalid upload target type %q for image type %q", ut.Type, ir.ImageType),
+				)
+			}
+			rawOpts, err := json.Marshal(ut.UploadOptions)
+			if err != nil {
+				return uuid.Nil, HTTPErrorWithInternal(ErrorJSONMarshallingError, err)
+			}
+			uploadTargetSpecs = append(uploadTargetSpecs, worker.BootcUploadTarget{
+				Type:    string(ut.Type),
+				Options: rawOpts,
+			})
+		}
+	}
+
+	if ir.UploadOptions != nil {
+		defTargetType, err := getDefaultTarget(ir.ImageType)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if !tsm[defTargetType][ir.ImageType] {
+			return uuid.Nil, HTTPErrorWithDetails(
+				ErrorInvalidUploadTarget, nil,
+				fmt.Sprintf("invalid default upload target type %q for image type %q", defTargetType, ir.ImageType),
+			)
+		}
+		rawOpts, err := json.Marshal(*ir.UploadOptions)
+		if err != nil {
+			return uuid.Nil, HTTPErrorWithInternal(ErrorJSONMarshallingError, err)
+		}
+		uploadTargetSpecs = append(uploadTargetSpecs, worker.BootcUploadTarget{
+			Type:    string(defTargetType),
+			Options: rawOpts,
+		})
 	}
 
 	// Generate a manifest seed using crypto/rand, same approach as
@@ -646,6 +678,7 @@ func (s *Server) enqueueBootcCompose(request ComposeRequest, channel string) (uu
 		Seed:                       seed,
 		BootcInfoResolveDynArgsIdx: common.ToPtr(0), // dynArgs[0] = BootcInfoResolve
 		BaseInfoIdx:                0,               // base container info index within the BootcInfoResolve job result infos slice
+		UploadTargets:              uploadTargetSpecs,
 	}
 	preManifestJobID, err := s.workers.EnqueueBootcPreManifestJob(preManifestArgs, preManifestDeps, channel)
 	if err != nil {
@@ -686,10 +719,12 @@ func (s *Server) enqueueBootcCompose(request ComposeRequest, channel string) (uu
 		return uuid.Nil, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
 	}
 
-	// 5. Enqueue OSBuild (worker job, depends on ManifestByID)
+	// 5. Enqueue OSBuild (worker job, depends on ManifestByID and BootcPreManifest)
 	osbuildJobID, err := s.workers.EnqueueOSBuildAsDependency(ir.Architecture, &worker.OSBuildJob{
-		Targets: tgts,
-	}, []uuid.UUID{manifestJobID}, channel)
+		// Targets are empty — filled by worker from BootcPreManifest dynargs.
+		ManifestDynArgsIdx:    common.ToPtr(0), // dynArgs[0] = ManifestByID result
+		PreManifestDynArgsIdx: common.ToPtr(1), // dynArgs[1] = BootcPreManifest result
+	}, []uuid.UUID{manifestJobID, preManifestJobID}, channel)
 	if err != nil {
 		return uuid.Nil, HTTPErrorWithInternal(ErrorEnqueueingJob, err)
 	}
@@ -704,7 +739,8 @@ func (s *Server) enqueueBootcCompose(request ComposeRequest, channel string) (uu
 			return nil, fmt.Errorf("failed to read bootc info resolve job result: %w", err)
 		}
 
-		return buildBootcManifestSource(baseInfoIdx, buildInfoIdx, bootcInfoResult, imageTypeName, &bp, imageOptions, seed)
+		m, _, err := buildBootcManifestSource(baseInfoIdx, buildInfoIdx, bootcInfoResult, imageTypeName, &bp, imageOptions, seed)
+		return m, err
 	}
 	s.goroutinesGroup.Add(1)
 	go func() {
@@ -1081,7 +1117,7 @@ func handleBootcPreManifest(
 	// containers), so nil is safe here.
 	baseInfoIdx := preManifestArgs.BaseInfoIdx
 	buildInfoIdx := preManifestArgs.BuildInfoIdx
-	manifestSource, err := buildBootcManifestSource(baseInfoIdx, buildInfoIdx, bootcInfoResult, preManifestArgs.ImageType, &preManifestArgs.Blueprint, preManifestArgs.ImageOptions, preManifestArgs.Seed)
+	manifestSource, imgType, err := buildBootcManifestSource(baseInfoIdx, buildInfoIdx, bootcInfoResult, preManifestArgs.ImageType, &preManifestArgs.Blueprint, preManifestArgs.ImageOptions, preManifestArgs.Seed)
 	if err != nil {
 		preManifestResult.JobError = clienterrors.New(
 			clienterrors.ErrorManifestGeneration,
@@ -1167,5 +1203,39 @@ func handleBootcPreManifest(
 	preManifestResult.ContainerResolveJobArgs = &worker.ContainerResolveJob{
 		Arch:          canonicalArch.String(),
 		PipelineSpecs: pipelineContainerSpecs,
+	}
+
+	// Construct complete upload targets using the image type.
+	// This is the bootc equivalent of getTarget() called at enqueue time
+	// in the non-bootc flow. We do it here because distro.ImageType is
+	// only available after resolving bootc container info.
+	// Target type validation against image type is already done at enqueue
+	// time via targetSupportMap(), so we skip it here and go straight to
+	// target construction.
+	if len(preManifestArgs.UploadTargets) > 0 {
+		targets := make([]*target.Target, 0, len(preManifestArgs.UploadTargets))
+		for _, ut := range preManifestArgs.UploadTargets {
+			targetType := UploadTypes(ut.Type)
+
+			var opts UploadOptions
+			if err := opts.UnmarshalJSON(ut.Options); err != nil {
+				preManifestResult.JobError = clienterrors.New(
+					clienterrors.ErrorInvalidTargetConfig,
+					"Error constructing upload target: "+err.Error(), nil,
+				)
+				return
+			}
+
+			trgt, err := getTarget(targetType, opts, imgType)
+			if err != nil {
+				preManifestResult.JobError = clienterrors.New(
+					clienterrors.ErrorInvalidTargetConfig,
+					"Error constructing upload target: "+err.Error(), nil,
+				)
+				return
+			}
+			targets = append(targets, trgt)
+		}
+		preManifestResult.Targets = targets
 	}
 }
