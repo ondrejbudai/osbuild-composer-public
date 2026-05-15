@@ -144,7 +144,8 @@ pg_ssl_mode = "disable"
 pg_max_conns = 10
 EOF
 
-sudo systemctl restart osbuild-composer
+# Restart the worker as well to make sure it is registered against the psql DB
+sudo systemctl restart osbuild-composer osbuild-remote-worker@localhost:8700
 
 greenprint "Using Cloud Provider / Target ${CLOUD_PROVIDER} for Image Type ${IMAGE_TYPE}"
 
@@ -205,6 +206,10 @@ function cleanups() {
 
   # dump the DB here to ensure that it gets dumped even if the test fails
   dump_db
+
+  # kill osbuild-composer to avoid it crashing when stopping the
+  # database container
+  sudo systemctl stop osbuild-remote-worker@localhost:8700 osbuild-composer
 
   sudo "${CONTAINER_RUNTIME}" kill "${DB_CONTAINER_NAME}"
   sudo "${CONTAINER_RUNTIME}" rm "${DB_CONTAINER_NAME}"
