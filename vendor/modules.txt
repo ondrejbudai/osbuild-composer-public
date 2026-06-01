@@ -202,7 +202,7 @@ github.com/acarl005/stripansi
 # github.com/apapsch/go-jsonmerge/v2 v2.0.0
 ## explicit; go 1.12
 github.com/apapsch/go-jsonmerge/v2
-# github.com/aws/aws-sdk-go-v2 v1.41.3
+# github.com/aws/aws-sdk-go-v2 v1.41.7
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/aws
 github.com/aws/aws-sdk-go-v2/aws/arn
@@ -235,10 +235,11 @@ github.com/aws/aws-sdk-go-v2/internal/timeconv
 ## explicit; go 1.22
 github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
 github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream/eventstreamapi
-# github.com/aws/aws-sdk-go-v2/config v1.32.11
+# github.com/aws/aws-sdk-go-v2/config v1.32.18
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/config
-# github.com/aws/aws-sdk-go-v2/credentials v1.19.11
+github.com/aws/aws-sdk-go-v2/config/internal/ini
+# github.com/aws/aws-sdk-go-v2/credentials v1.19.17
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/credentials
 github.com/aws/aws-sdk-go-v2/credentials/ec2rolecreds
@@ -248,44 +249,41 @@ github.com/aws/aws-sdk-go-v2/credentials/logincreds
 github.com/aws/aws-sdk-go-v2/credentials/processcreds
 github.com/aws/aws-sdk-go-v2/credentials/ssocreds
 github.com/aws/aws-sdk-go-v2/credentials/stscreds
-# github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.19
+# github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.23
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/feature/ec2/imds
 github.com/aws/aws-sdk-go-v2/feature/ec2/imds/internal/config
 # github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.19.4
 ## explicit; go 1.22
 github.com/aws/aws-sdk-go-v2/feature/s3/manager
-# github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.19
+# github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.23
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/internal/configsources
-# github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.19
+# github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.23
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/internal/endpoints/v2
-# github.com/aws/aws-sdk-go-v2/internal/ini v1.8.5
+# github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.24
 ## explicit; go 1.24
-github.com/aws/aws-sdk-go-v2/internal/ini
-# github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.6
-## explicit; go 1.22
 github.com/aws/aws-sdk-go-v2/internal/v4a
 github.com/aws/aws-sdk-go-v2/internal/v4a/internal/crypto
 github.com/aws/aws-sdk-go-v2/internal/v4a/internal/v4
-# github.com/aws/aws-sdk-go-v2/service/autoscaling v1.64.2
+# github.com/aws/aws-sdk-go-v2/service/autoscaling v1.66.2
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/service/autoscaling
 github.com/aws/aws-sdk-go-v2/service/autoscaling/internal/endpoints
 github.com/aws/aws-sdk-go-v2/service/autoscaling/types
-# github.com/aws/aws-sdk-go-v2/service/ec2 v1.294.0
+# github.com/aws/aws-sdk-go-v2/service/ec2 v1.304.0
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/service/ec2
 github.com/aws/aws-sdk-go-v2/service/ec2/internal/endpoints
 github.com/aws/aws-sdk-go-v2/service/ec2/types
-# github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.6
+# github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.9
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding
 # github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.8.6
 ## explicit; go 1.22
 github.com/aws/aws-sdk-go-v2/service/internal/checksum
-# github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.19
+# github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.23
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/service/internal/presigned-url
 # github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.6
@@ -300,27 +298,27 @@ github.com/aws/aws-sdk-go-v2/service/s3/internal/arn
 github.com/aws/aws-sdk-go-v2/service/s3/internal/customizations
 github.com/aws/aws-sdk-go-v2/service/s3/internal/endpoints
 github.com/aws/aws-sdk-go-v2/service/s3/types
-# github.com/aws/aws-sdk-go-v2/service/signin v1.0.7
+# github.com/aws/aws-sdk-go-v2/service/signin v1.0.11
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/service/signin
 github.com/aws/aws-sdk-go-v2/service/signin/internal/endpoints
 github.com/aws/aws-sdk-go-v2/service/signin/types
-# github.com/aws/aws-sdk-go-v2/service/sso v1.30.12
+# github.com/aws/aws-sdk-go-v2/service/sso v1.30.17
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/service/sso
 github.com/aws/aws-sdk-go-v2/service/sso/internal/endpoints
 github.com/aws/aws-sdk-go-v2/service/sso/types
-# github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.16
+# github.com/aws/aws-sdk-go-v2/service/ssooidc v1.36.0
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/service/ssooidc
 github.com/aws/aws-sdk-go-v2/service/ssooidc/internal/endpoints
 github.com/aws/aws-sdk-go-v2/service/ssooidc/types
-# github.com/aws/aws-sdk-go-v2/service/sts v1.41.8
+# github.com/aws/aws-sdk-go-v2/service/sts v1.42.1
 ## explicit; go 1.24
 github.com/aws/aws-sdk-go-v2/service/sts
 github.com/aws/aws-sdk-go-v2/service/sts/internal/endpoints
 github.com/aws/aws-sdk-go-v2/service/sts/types
-# github.com/aws/smithy-go v1.24.2
+# github.com/aws/smithy-go v1.26.0
 ## explicit; go 1.24
 github.com/aws/smithy-go
 github.com/aws/smithy-go/auth
@@ -334,6 +332,7 @@ github.com/aws/smithy-go/encoding/httpbinding
 github.com/aws/smithy-go/encoding/json
 github.com/aws/smithy-go/encoding/xml
 github.com/aws/smithy-go/endpoints
+github.com/aws/smithy-go/endpoints/private/bdd
 github.com/aws/smithy-go/endpoints/private/rulesfn
 github.com/aws/smithy-go/internal/sync/singleflight
 github.com/aws/smithy-go/io
@@ -651,7 +650,7 @@ github.com/getkin/kin-openapi/openapi3filter
 github.com/getkin/kin-openapi/routers
 github.com/getkin/kin-openapi/routers/legacy
 github.com/getkin/kin-openapi/routers/legacy/pathpattern
-# github.com/getsentry/sentry-go v0.43.0
+# github.com/getsentry/sentry-go v0.45.1
 ## explicit; go 1.24.0
 github.com/getsentry/sentry-go
 github.com/getsentry/sentry-go/attribute
@@ -664,10 +663,11 @@ github.com/getsentry/sentry-go/internal/protocol
 github.com/getsentry/sentry-go/internal/ratelimit
 github.com/getsentry/sentry-go/internal/telemetry
 github.com/getsentry/sentry-go/internal/util
+github.com/getsentry/sentry-go/report
 # github.com/getsentry/sentry-go/echo v0.43.0
 ## explicit; go 1.24.0
 github.com/getsentry/sentry-go/echo
-# github.com/getsentry/sentry-go/logrus v0.43.0
+# github.com/getsentry/sentry-go/logrus v0.45.1
 ## explicit; go 1.24.0
 github.com/getsentry/sentry-go/logrus
 # github.com/go-jose/go-jose/v4 v4.1.4
@@ -858,8 +858,8 @@ github.com/kylelemons/godebug/pretty
 ## explicit; go 1.24.0
 github.com/labstack/echo/v4
 github.com/labstack/echo/v4/middleware
-# github.com/labstack/gommon v0.4.2
-## explicit; go 1.18
+# github.com/labstack/gommon v0.5.0
+## explicit; go 1.23.0
 github.com/labstack/gommon/bytes
 github.com/labstack/gommon/color
 github.com/labstack/gommon/log
@@ -879,8 +879,8 @@ github.com/mailru/easyjson/jwriter
 # github.com/mattn/go-colorable v0.1.14
 ## explicit; go 1.18
 github.com/mattn/go-colorable
-# github.com/mattn/go-isatty v0.0.20
-## explicit; go 1.15
+# github.com/mattn/go-isatty v0.0.21
+## explicit; go 1.21
 github.com/mattn/go-isatty
 # github.com/mattn/go-runewidth v0.0.16
 ## explicit; go 1.9
@@ -927,8 +927,8 @@ github.com/munnerz/goautoneg
 github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
 github.com/oapi-codegen/oapi-codegen/v2/pkg/codegen
 github.com/oapi-codegen/oapi-codegen/v2/pkg/util
-# github.com/oapi-codegen/runtime v1.2.0
-## explicit; go 1.20
+# github.com/oapi-codegen/runtime v1.4.1
+## explicit; go 1.24.0
 github.com/oapi-codegen/runtime
 github.com/oapi-codegen/runtime/types
 # github.com/oasdiff/yaml v0.0.0-20250309154309-f31be36b4037
@@ -952,7 +952,7 @@ github.com/opencontainers/runtime-spec/specs-go
 github.com/opencontainers/selinux/go-selinux
 github.com/opencontainers/selinux/go-selinux/label
 github.com/opencontainers/selinux/pkg/pwalkdir
-# github.com/openshift-online/ocm-sdk-go v0.1.499
+# github.com/openshift-online/ocm-sdk-go v0.1.501
 ## explicit; go 1.24.0
 github.com/openshift-online/ocm-sdk-go/authentication
 github.com/openshift-online/ocm-sdk-go/errors
@@ -968,11 +968,11 @@ github.com/oracle/oci-go-sdk/v54/identity
 github.com/oracle/oci-go-sdk/v54/objectstorage
 github.com/oracle/oci-go-sdk/v54/objectstorage/transfer
 github.com/oracle/oci-go-sdk/v54/workrequests
-# github.com/osbuild/blueprint v1.29.0
+# github.com/osbuild/blueprint v1.30.0
 ## explicit; go 1.23.9
 github.com/osbuild/blueprint/internal/common
 github.com/osbuild/blueprint/pkg/blueprint
-# github.com/osbuild/images v0.263.0
+# github.com/osbuild/images v0.266.0
 ## explicit; go 1.24.12
 github.com/osbuild/images/data/dependencies
 github.com/osbuild/images/data/distrodefs
