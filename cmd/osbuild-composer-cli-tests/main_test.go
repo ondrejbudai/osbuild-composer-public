@@ -23,6 +23,13 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/public/weldr"
 )
 
+type ComposeStatus uint
+
+const (
+	StatusFailed ComposeStatus = iota
+	StatusSucceeded
+)
+
 func TestComposeCommands(t *testing.T) {
 	// common setup
 	tmpdir := NewTemporaryWorkDir(t, "osbuild-tests-")
@@ -87,7 +94,7 @@ func TestComposeCommands(t *testing.T) {
 	runComposer(t, "compose", "cancel", uuid.String())
 	time.Sleep(20 * time.Second)
 	status := waitForCompose(t, uuid)
-	assert.Equal(t, "FAILED", status)
+	assert.Equal(t, StatusFailed, status)
 
 	// Check that reusing the cache works ok
 	uuid = buildCompose(t, "empty", "qcow2")
@@ -195,7 +202,7 @@ func buildCompose(t *testing.T, bpName string, outputType string) uuid.UUID {
 	// This check should prevent bugs where we lose logs for all stages.
 	assert.Contains(t, logs, "org.osbuild.rpm")
 
-	if !assert.Equalf(t, "FINISHED", status, "Unexpected compose result: %s", status) {
+	if !assert.Equalf(t, StatusSucceeded, status, "Unexpected compose result: %s", status) {
 		log.Print("logs from the build: ", logs)
 		t.FailNow()
 	}
@@ -233,7 +240,35 @@ func startCompose(t *testing.T, name, outputType string) uuid.UUID {
 }
 
 func deleteCompose(t *testing.T, id uuid.UUID) {
+	t.Helper()
 	rawReply := runComposerJSON(t, "compose", "delete", id.String())
+
+	// weldr-client v36.0+ uses the cloud API directly. Try to parse the
+	// response into the API's struct first and then fall back to the older
+	// versions.
+	type cloudReply struct {
+		Method string `json:"method"`
+		Path   string `json:"path"`
+		Status int    `json:"status"`
+		Body   struct {
+			Kind string    `json:"kind"`
+			ID   uuid.UUID `json:"id"`
+		} `json:"body"`
+	}
+	var cr []cloudReply
+	if err := json.Unmarshal(rawReply, &cr); err == nil && len(cr) > 0 {
+		for _, item := range cr {
+			if item.Body.Kind == "ComposeDeleteStatus" {
+				if item.Body.ID != id {
+					require.Fail(t, "composer-cli cloud API response ComposeDeleteStatus returned unexpected compose ID: %s != %s", id, item.Body.ID)
+				}
+				return
+			}
+		}
+	}
+
+	// if the response failed to parse or didn't include a ComposeDeleteStatus,
+	// continue to the older structures
 
 	type deleteUUID struct {
 		ID     uuid.UUID `json:"uuid"`
@@ -271,18 +306,47 @@ func deleteCompose(t *testing.T, id uuid.UUID) {
 	require.Truef(t, body.IDs[0].Status, "Unexpected status %v", body.IDs[0].Status)
 }
 
-func waitForCompose(t *testing.T, uuid uuid.UUID) string {
+func waitForCompose(t *testing.T, uuid uuid.UUID) ComposeStatus {
 	for {
 		status := getComposeStatus(t, uuid)
-		if status == "FINISHED" || status == "FAILED" {
-			return status
+		switch status {
+		case "FINISHED", "success":
+			return StatusSucceeded
+		case "FAILED", "failure":
+			return StatusFailed
 		}
 		time.Sleep(time.Second)
 	}
 }
 
 func getComposeStatus(t *testing.T, uuid uuid.UUID) string {
+	t.Helper()
 	rawReply := runComposerJSON(t, "compose", "info", uuid.String())
+
+	// weldr-client v36.0+ uses the cloud API directly. Try to parse the
+	// response into the API's struct first and then fall back to the older
+	// versions.
+	type cloudReply struct {
+		Method string `json:"method"`
+		Path   string `json:"path"`
+		Status int    `json:"status"`
+		Body   struct {
+			Kind   string `json:"kind"`
+			Status string `json:"status"`
+		} `json:"body"`
+	}
+	var cr []cloudReply
+	if err := json.Unmarshal(rawReply, &cr); err == nil && len(cr) > 0 {
+		// find the ComposeStatus and return its status
+		for _, item := range cr {
+			if item.Body.Kind == "ComposeStatus" {
+				return item.Body.Status
+			}
+		}
+	}
+
+	// if the response failed to parse or didn't include a ComposeStatus,
+	// continue to the older structures
 
 	type reply struct {
 		QueueStatus string `json:"queue_status"`

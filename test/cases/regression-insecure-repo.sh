@@ -113,7 +113,6 @@ composedir=$(mktemp -d)
 blueprint="${composedir}/blueprint.toml"
 dummysource="${composedir}/dummy.toml"
 composestart="${composedir}/compose-start.json"
-composeinfo="${composedir}/compose-info.json"
 modulesinfo="${composedir}/modules-info.json"
 
 # Write a source (repo) config to add to composer
@@ -155,29 +154,13 @@ if [[ "${dummysourceurl}" != "${expectedurl}" ]]; then
 fi
 
 sudo composer-cli --json compose start dummy qcow2 | tee "${composestart}"
-composeid=$(get_build_info '.build_id' "${composestart}")
+COMPOSE_ID=$(get_compose_id "${composestart}")
+COMPOSE_STATUS=$(wait_for_compose "${COMPOSE_ID}")
 
-# Wait for the compose to finish.
-echo "⏱ Waiting for compose to finish: ${composeid}"
-while true; do
-    sudo composer-cli --json compose info "${composeid}" | tee "${composeinfo}" > /dev/null
-    composestatus=$(get_build_info '.queue_status' "${composeinfo}")
-
-    # Is the compose finished?
-    if [[ ${composestatus} != RUNNING ]] && [[ ${composestatus} != WAITING ]]; then
-        break
-    fi
-
-    # Wait 30 seconds and try again.
-    sleep 30
-done
-
-sudo composer-cli compose delete "${composeid}" >/dev/null
-
-jq . "${composeinfo}"
+sudo composer-cli compose delete "${COMPOSE_ID}" >/dev/null
 
 # Did the compose finish with success?
-if [[ $composestatus == FINISHED ]]; then
+if [[ $COMPOSE_STATUS == FINISHED ]] || [[ $COMPOSE_STATUS == success ]]; then
     echo "Test passed!"
     exit 0
 else

@@ -111,19 +111,38 @@ RPM:
   parallel:
     matrix:
       - RUNNER:
-          - aws/fedora-42-x86_64
-          - aws/fedora-42-aarch64
+          - aws/fedora-44-x86_64
+          - aws/fedora-44-aarch64
           - aws/rhel-8.10-ga-x86_64
-          - aws/rhel-8.10-ga-aarch64
-          - aws/rhel-9.7-ga-x86_64
-          - aws/rhel-9.7-ga-aarch64
-          - aws/rhel-10.1-ga-x86_64
-          - aws/rhel-10.1-ga-aarch64
           - aws/centos-stream-9-x86_64
           - aws/centos-stream-9-aarch64
           - aws/centos-stream-10-x86_64
           - aws/centos-stream-10-aarch64
-      - <<: *RPM_RUNNERS_RHEL
+      - RUNNER:
+          - aws/rhel-9.8-ga-x86_64
+          - aws/rhel-9.9-nightly-x86_64
+          - aws/rhel-9.9-nightly-aarch64
+          - aws/rhel-10.1-ga-aarch64
+          - aws/rhel-10.3-nightly-x86_64
+          - aws/rhel-10.3-nightly-aarch64
+        INTERNAL_NETWORK: ["true"]
+
+RPM (GA-only):
+  stage: rpmbuild
+  extends: .terraform
+  rules:
+    - !reference [.ga_rules_all, rules]
+  script:
+    - sh "schutzbot/mockbuild.sh"
+  parallel:
+    matrix:
+      - RUNNER:
+          - aws/rhel-8.10-ga-aarch64
+          - aws/rhel-9.7-ga-aarch64
+          - aws/rhel-9.8-ga-aarch64
+          - aws/rhel-10.2-ga-x86_64
+          - aws/rhel-10.2-ga-aarch64
+        INTERNAL_NETWORK: ["true"]
 
 Build -tests RPM for RHEL:
   stage: rpmbuild
@@ -215,14 +234,10 @@ Base:
   parallel:
     matrix:
       - RUNNER:
-          - aws/fedora-42-x86_64
-          - aws/fedora-42-aarch64
+          - aws/fedora-44-x86_64
+          - aws/fedora-44-aarch64
           - aws/rhel-8.10-ga-x86_64
           - aws/rhel-8.10-ga-aarch64
-          - aws/rhel-9.7-ga-x86_64
-          - aws/rhel-9.7-ga-aarch64
-          - aws/rhel-10.1-ga-x86_64
-          - aws/rhel-10.1-ga-aarch64
           - aws/centos-stream-9-x86_64
           - aws/centos-stream-9-aarch64
           - aws/centos-stream-10-x86_64
@@ -242,15 +257,11 @@ Base:
   parallel:
     matrix:
       - RUNNER:
-          - aws/fedora-42-x86_64
-          - aws/fedora-42-aarch64
+          - aws/fedora-44-x86_64
+          - aws/fedora-44-aarch64
       - RUNNER:
           - aws/rhel-8.10-ga-x86_64
           - aws/rhel-8.10-ga-aarch64
-          - aws/rhel-9.7-ga-x86_64
-          - aws/rhel-9.7-ga-aarch64
-          - aws/rhel-10.1-ga-x86_64
-          - aws/rhel-10.1-ga-aarch64
           - aws/centos-stream-9-x86_64
           - aws/centos-stream-9-aarch64
           - aws/centos-stream-10-x86_64
@@ -301,8 +312,6 @@ regression-old-worker-new-composer:
     matrix:
       - RUNNER:
           - aws/rhel-8.10-ga-x86_64
-          - aws/rhel-9.7-ga-x86_64
-          - aws/rhel-10.1-ga-x86_64
         INTERNAL_NETWORK: ["true"]
   extends: .regression
   variables:
@@ -345,9 +354,7 @@ regression-insecure-repo:
 .rhel_runners: &rhel_runners
     RUNNER:
       - aws/rhel-8.10-ga-x86_64
-      - aws/rhel-9.7-ga-x86_64
       - aws/rhel-9.9-nightly-x86_64
-      - aws/rhel-10.1-ga-x86_64
       - aws/rhel-10.2-ga-x86_64
       - aws/rhel-10.3-nightly-x86_64
       - aws/centos-stream-9-x86_64
@@ -362,7 +369,7 @@ regression-insecure-repo:
 
 .fedora_runners: &fedora_runners
     RUNNER:
-      - aws/fedora-42-x86_64
+      - aws/fedora-44-x86_64
 
 .integration_fedora:
   extends: .integration_base
@@ -389,17 +396,17 @@ koji.sh (cloud upload):
   parallel:
     matrix:
       - RUNNER:
-          - aws/rhel-9.7-ga-x86_64
+          - aws/rhel-9.8-ga-x86_64
         INTERNAL_NETWORK: ["true"]
         CLOUD_TARGET: aws
         IMAGE_TYPE: aws-rhui
       - RUNNER:
-          - aws/rhel-9.7-ga-x86_64
+          - aws/rhel-9.8-ga-x86_64
         INTERNAL_NETWORK: ["true"]
         CLOUD_TARGET: azure
         IMAGE_TYPE: azure-rhui
       - RUNNER:
-          - aws/rhel-9.7-ga-x86_64
+          - aws/rhel-9.8-ga-x86_64
         INTERNAL_NETWORK: ["true"]
         CLOUD_TARGET: gcp
         IMAGE_TYPE: gcp-rhui
@@ -416,7 +423,7 @@ koji.sh (cloudapi):
     matrix:
       - *fedora_runners
       - RUNNER:
-          - aws/rhel-9.7-ga-x86_64
+          - aws/rhel-9.8-ga-x86_64
         INTERNAL_NETWORK: ["true"]
 
 aws.sh:
@@ -429,13 +436,18 @@ aws.sh:
     SCRIPT: aws.sh
 
 oci.sh:
-  extends: .integration
-  rules:
-    # Run only on x86_64
-    - !reference [.upstream_rules_x86_64, rules]
-    - !reference [.ga_rules_x86_64, rules]
   variables:
     SCRIPT: oci.sh
+  extends: .integration
+  parallel:
+    matrix:
+      - RUNNER:
+          # Run only on x86_64
+          - aws/rhel-9.8-ga-x86_64
+          - aws/rhel-9.9-nightly-x86_64
+          - aws/rhel-10.2-ga-x86_64
+          - aws/rhel-10.3-nightly-x86_64
+        INTERNAL_NETWORK: ["true"]
 
 # NOTE(akoutsou): Infra capacity issue is causing these to fail constantly. We
 # have an open SNOW ticket (UR0159317). Once it's resolved, we can enable the
@@ -521,32 +533,34 @@ cross-distro.sh:
 
 .API_TESTS: &API_TESTS
   IMAGE_TYPE:
+    - guest-image
     - aws
     - azure
-    - edge-commit
     - gcp
-    - vsphere
-    - edge-commit generic.s3
-    - edge-container
     - oci
+    - image-installer
 
 API:
   stage: test
   extends: .terraform
   rules:
-    - !reference [.upstream_and_ga_rules_all, rules]
     - !reference [.ga_rules_all, rules]
-    # note: cloud API is not supported for on-prem installations so
-    # don't run this test case for nightly trees
   script:
     - schutzbot/deploy.sh
     - /usr/libexec/tests/osbuild-composer/api.sh ${IMAGE_TYPE}
   parallel:
     matrix:
-      - <<: *API_TESTS
+      - IMAGE_TYPE:
+          - aws
+          - azure
+          - edge-commit
+          - gcp
+          - vsphere
+          - edge-commit generic.s3
+          - edge-container
+          - oci
         RUNNER:
           - aws/rhel-8.10-ga-x86_64
-          - aws/rhel-9.7-ga-x86_64
           - aws/rhel-9.8-ga-x86_64
           - aws/rhel-9.9-nightly-x86_64
         INTERNAL_NETWORK: ["true"]
@@ -559,32 +573,35 @@ API:
           - oci
           - vsphere
         RUNNER:
-          # Add all RHEL 10 runners here to exclude Edge for them
-          - aws/rhel-10.1-ga-x86_64
           - aws/rhel-10.2-ga-x86_64
           - aws/rhel-10.3-nightly-x86_64
         INTERNAL_NETWORK: ["true"]
       - IMAGE_TYPE: ["iot-commit"]
         RUNNER:
-          - aws/fedora-42-x86_64
+          - aws/fedora-44-x86_64
       - IMAGE_TYPE: ["iot-bootable-container"]
         RUNNER:
-          - aws/fedora-42-x86_64
-          - aws/fedora-42-aarch64
+          - aws/fedora-44-x86_64
+          - aws/fedora-44-aarch64
       - IMAGE_TYPE: ["aws"]
         RUNNER:
           - aws/rhel-8.10-ga-aarch64
-          - aws/rhel-9.7-ga-aarch64
-          - aws/rhel-10.1-ga-aarch64
         INTERNAL_NETWORK: ["true"]
 
-      # single test config for experimental feature
-      # TODO: temporarily disabled until https://github.com/osbuild/osbuild-composer/issues/5000 is resolved
-      # - IMAGE_TYPE: ["aws"]
-      #   RUNNER:
-      #     - aws/rhel-10.1-ga-x86_64
-      #   IMAGE_BUILDER_EXPERIMENTAL: "image-builder-manifest-generation=1"
-      #   INTERNAL_NETWORK: ["true"]
+API (PR):
+  stage: test
+  extends: .terraform
+  rules:
+    - if: '$CI_PIPELINE_SOURCE != "schedule" && $RUNNER'
+  script:
+    - schutzbot/deploy.sh
+    - /usr/libexec/tests/osbuild-composer/api.sh ${IMAGE_TYPE}
+  parallel:
+    matrix:
+      - <<: *API_TESTS
+        RUNNER:
+          - aws/rhel-10.2-ga-x86_64
+        INTERNAL_NETWORK: ["true"]
 
 API-module-hotfixes:
   stage: test
@@ -618,7 +635,7 @@ API-unit:
   parallel:
     matrix:
       - RUNNER:
-          - aws/rhel-10.1-ga-x86_64
+          - aws/rhel-10.2-ga-x86_64
         INTERNAL_NETWORK: ["true"]
 
 .libvirt_integration:
@@ -634,11 +651,9 @@ API-unit:
   parallel:
     matrix:
       - RUNNER:
-          - rhos-01/fedora-42-x86_64
+          - rhos-01/fedora-44-x86_64
       - RUNNER:
           - gcp/rhel-8.10-ga-x86_64
-          - gcp/rhel-9.7-ga-x86_64
-          - gcp/rhel-10.1-ga-x86_64
           - gcp/rhel-9.8-ga-x86_64
           - gcp/rhel-9.9-nightly-x86_64
           - gcp/rhel-10.2-ga-x86_64
@@ -673,7 +688,7 @@ weldr-distro-dot-notation+aliases:
   extends: .libvirt_integration
   rules:
     # BLACKLIST
-    - if: $RUNNER !~ "/^.*(rhel-9.7).*$/" && $CI_PIPELINE_SOURCE != "schedule" && $NIGHTLY != "true" && $RUNNER !~ /[\S]+rhel-[\S]+-(?:(?:ga)|(?:eus))[\S]+/
+    - if: $RUNNER !~ "/^.*(rhel-9.8).*$/" && $CI_PIPELINE_SOURCE != "schedule" && $NIGHTLY != "true" && $RUNNER !~ /[\S]+rhel-[\S]+-(?:(?:ga)|(?:eus))[\S]+/
     - !reference [.nightly_rules_all, rules]
     - !reference [.ga_rules_all, rules]
 
@@ -707,7 +722,7 @@ RHEL 8 on 9 (Koji):
     - schutzbot/deploy.sh
     - /usr/libexec/tests/osbuild-composer/koji.sh
   variables:
-    RUNNER: aws/rhel-9.7-ga-x86_64
+    RUNNER: aws/rhel-9.8-ga-x86_64
     INTERNAL_NETWORK: "true"
     DISTRO_CODE: rhel-8.10
 
@@ -721,9 +736,9 @@ RHEL 10 on 9 (Koji):
     - schutzbot/deploy.sh
     - /usr/libexec/tests/osbuild-composer/koji.sh
   variables:
-    RUNNER: aws/rhel-9.7-ga-x86_64
+    RUNNER: aws/rhel-9.8-ga-x86_64
     INTERNAL_NETWORK: "true"
-    DISTRO_CODE: rhel-10.1
+    DISTRO_CODE: rhel-10.2
 
 Multi-tenancy:
   stage: test
@@ -824,7 +839,7 @@ ContainerUpload:
   parallel:
     matrix:
       - RUNNER:
-          - aws/fedora-42-x86_64
+          - aws/fedora-44-x86_64
 
 WorkerExecutor:
   stage: test
@@ -836,7 +851,7 @@ WorkerExecutor:
     - schutzbot/deploy.sh
     - /usr/libexec/tests/osbuild-composer/worker-executor.sh
   variables:
-    RUNNER: aws/fedora-42-x86_64
+    RUNNER: aws/fedora-44-x86_64
     IAM_INSTANCE_PROFILE: worker-executor
 
 WorkerExecutorFailure:
@@ -849,7 +864,7 @@ WorkerExecutorFailure:
     - schutzbot/deploy.sh
     - /usr/libexec/tests/osbuild-composer/worker-executor-crash.sh
   variables:
-    RUNNER: aws/fedora-42-x86_64
+    RUNNER: aws/fedora-44-x86_64
     IAM_INSTANCE_PROFILE: worker-executor
 
 API-bootc-service:
@@ -862,7 +877,7 @@ API-bootc-service:
     - schutzbot/deploy.sh
     - /usr/libexec/tests/osbuild-composer/api-bootc-service.sh ${IMAGE_TYPE}
   variables:
-    RUNNER: aws/rhel-10.1-ga-x86_64
+    RUNNER: aws/rhel-10.2-ga-x86_64
     IAM_INSTANCE_PROFILE: worker-executor
   parallel:
     matrix:
@@ -879,7 +894,7 @@ WorkerJournal:
     - schutzbot/deploy.sh
     - /usr/libexec/tests/osbuild-composer/worker-journal-failures.sh
   variables:
-    RUNNER: aws/rhel-10.1-ga-x86_64
+    RUNNER: aws/rhel-10.2-ga-x86_64
 
 CleanStore:
   stage: test
@@ -891,7 +906,7 @@ CleanStore:
     - schutzbot/deploy.sh
     - /usr/libexec/tests/osbuild-composer/cleanstore.sh
   variables:
-    RUNNER: aws/fedora-42-x86_64
+    RUNNER: aws/fedora-44-x86_64
 
 finish:
   stage: finish
