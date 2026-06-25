@@ -17,7 +17,7 @@ import (
 
 	"github.com/ondrejbudai/osbuild-composer-public/pkg/jobqueue"
 
-	"github.com/osbuild/images/pkg/distro/test_distro"
+	"github.com/osbuild/image-builder/pkg/distro/test_distro"
 	v2 "github.com/ondrejbudai/osbuild-composer-public/public/cloudapi/v2"
 	"github.com/ondrejbudai/osbuild-composer-public/public/test"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"

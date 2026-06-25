@@ -3,8 +3,8 @@ package cloudapi
 import (
 	"net/http"
 
-	"github.com/osbuild/images/pkg/distrofactory"
-	"github.com/osbuild/images/pkg/reporegistry"
+	"github.com/osbuild/image-builder/pkg/distrofactory"
+	"github.com/osbuild/image-builder/pkg/reporegistry"
 
 	v2 "github.com/ondrejbudai/osbuild-composer-public/public/cloudapi/v2"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker"

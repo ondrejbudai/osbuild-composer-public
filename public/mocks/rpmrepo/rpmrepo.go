@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 
-	"github.com/osbuild/images/pkg/rpmmd"
+	"github.com/osbuild/image-builder/pkg/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 )
 

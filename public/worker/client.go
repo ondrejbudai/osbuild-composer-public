@@ -17,7 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"github.com/osbuild/images/pkg/arch"
+	"github.com/osbuild/image-builder/pkg/arch"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/worker/api"
 )

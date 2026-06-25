@@ -8,7 +8,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/osbuild/images/pkg/depsolvednf"
+	"github.com/osbuild/image-builder/pkg/depsolvednf"
 	worker "github.com/ondrejbudai/osbuild-composer-public/cmd/osbuild-worker"
 )
 

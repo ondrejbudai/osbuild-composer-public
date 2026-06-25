@@ -21,10 +21,10 @@ import (
 	"github.com/ondrejbudai/osbuild-composer-public/pkg/jobqueue"
 	"github.com/ondrejbudai/osbuild-composer-public/pkg/jobqueue/dbjobqueue"
 
-	"github.com/osbuild/images/pkg/depsolvednf"
-	"github.com/osbuild/images/pkg/distrofactory"
-	"github.com/osbuild/images/pkg/experimentalflags"
-	"github.com/osbuild/images/pkg/reporegistry"
+	"github.com/osbuild/image-builder/pkg/depsolvednf"
+	"github.com/osbuild/image-builder/pkg/distrofactory"
+	"github.com/osbuild/image-builder/pkg/experimentalflags"
+	"github.com/osbuild/image-builder/pkg/reporegistry"
 	"github.com/ondrejbudai/osbuild-composer-public/public/auth"
 	"github.com/ondrejbudai/osbuild-composer-public/public/cloudapi"
 	v2 "github.com/ondrejbudai/osbuild-composer-public/public/cloudapi/v2"
@@ -176,7 +176,7 @@ func (c *Composer) InitAPI(cert, key string, enableTLS bool, enableMTLS bool, en
 	}
 
 	// handle experimental image-builder manifest generation option using the
-	// experimentalflags pkg from osbuild/images.
+	// experimentalflags pkg from osbuild/image-builder.
 	if experimentalflags.Bool("image-builder-manifest-generation") {
 		config.ImageBuilderManifestGeneration = true
 	}

@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/osbuild/blueprint/pkg/blueprint"
-	"github.com/osbuild/images/pkg/rpmmd"
+	"github.com/osbuild/image-builder/pkg/rpmmd"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/store"
 	"github.com/ondrejbudai/osbuild-composer-public/public/weldrtypes"

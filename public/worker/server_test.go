@@ -18,10 +18,10 @@ import (
 
 	"github.com/ondrejbudai/osbuild-composer-public/pkg/jobqueue"
 
-	"github.com/osbuild/images/pkg/arch"
-	"github.com/osbuild/images/pkg/distro"
-	"github.com/osbuild/images/pkg/distro/test_distro"
-	"github.com/osbuild/images/pkg/osbuild"
+	"github.com/osbuild/image-builder/pkg/arch"
+	"github.com/osbuild/image-builder/pkg/distro"
+	"github.com/osbuild/image-builder/pkg/distro/test_distro"
+	"github.com/osbuild/image-builder/pkg/osbuild"
 	"github.com/ondrejbudai/osbuild-composer-public/public/common"
 	"github.com/ondrejbudai/osbuild-composer-public/public/jobqueue/fsjobqueue"
 	"github.com/ondrejbudai/osbuild-composer-public/public/prometheus"
