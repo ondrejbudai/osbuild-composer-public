@@ -8,11 +8,11 @@
 %bcond_with relax_requires
 
 # The minimum required osbuild version
-%global min_osbuild_version 190
+%global min_osbuild_version 189
 
 %global goipath         github.com/osbuild/osbuild-composer
 
-Version:        179
+Version:        180
 
 %gometa
 
