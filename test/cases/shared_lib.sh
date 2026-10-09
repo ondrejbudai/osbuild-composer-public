@@ -57,7 +57,7 @@ function get_compose_status() {
 # Function to wait for a compose to finish
 function wait_for_compose() {
     local compose_id="$1"
-    local timeout=${2:-1200}
+    local timeout=${2:-1800}
     local compose_status
 
     if [[ -z "$compose_id" ]]; then
@@ -98,15 +98,15 @@ function wait_for_compose() {
 
 # Colorful timestamped output.
 function greenprint {
-    echo -e "\033[1;32m[$(date -Isecond)] $*\033[0m" >&2
+    echo -e "\033[1;32m$*\033[0m" >&2
 }
 
 function yellowprint {
-    echo -e "\033[1;33m[$(date -Isecond)] $*\033[0m" >&2
+    echo -e "\033[1;33m$*\033[0m" >&2
 }
 
 function redprint {
-    echo -e "\033[1;31m[$(date -Isecond)] $*\033[0m" >&2
+    echo -e "\033[1;31m$*\033[0m" >&2
 }
 
 # Helper for GitLab foldable sections
