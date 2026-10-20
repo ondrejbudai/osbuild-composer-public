@@ -12,7 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.9
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.3
 	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.78.4
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.338.4
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.339.0
 	github.com/aws/smithy-go v1.28.5
 	github.com/coreos/go-systemd/v22 v22.7.0
 	github.com/getkin/kin-openapi v0.133.0
@@ -31,7 +31,7 @@ require (
 	github.com/oapi-codegen/oapi-codegen/v2 v2.6.0
 	github.com/oapi-codegen/runtime v1.7.0
 	github.com/openshift-online/ocm-sdk-go v0.1.517
-	github.com/osbuild/blueprint v1.34.0
+	github.com/osbuild/blueprint v1.35.0
 	github.com/osbuild/image-builder v0.274.1-0.20261007132816-44d5db5fcded
 	github.com/osbuild/osbuild-composer/pkg/splunk_logger v0.0.0-20240814102216-0239db53236d
 	github.com/prometheus/client_golang v1.24.1
