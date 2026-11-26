@@ -73,7 +73,7 @@ function determine_composer_repo_sha {
     fi
 
     local TRIES=0
-    while [[ $TRIES -lt 10 ]]; do
+    while [[ $TRIES -lt 30 ]]; do
         if ! check_s3_repo_for_composer_sha "$DESIRED_COMMIT_SHA"; then
             greenprint "Found working composer RPM repository for commit ${DESIRED_COMMIT_SHA}"
             echo "$DESIRED_COMMIT_SHA"
@@ -94,12 +94,6 @@ CURRENT_WORKER_VERSION=$(rpm -q --qf '%{version}\n' osbuild-composer-worker)
 # from the current version.
 
 OLD_WORKER_VERSION=$((CURRENT_WORKER_VERSION - 3))
-
-# NOTE: v168 release has the wrong version in the SPEC file, which would make this test fail. Use the previous version instead.
-# See https://github.com/osbuild/osbuild-composer/pull/5100
-if [[ "$OLD_WORKER_VERSION" == "168" ]]; then
-    OLD_WORKER_VERSION=$((OLD_WORKER_VERSION - 1))
-fi
 
 DESIRED_WORKER_RPM="osbuild-composer-worker-${OLD_WORKER_VERSION}"
 DESIRED_COMMIT_SHA=$(determine_composer_repo_sha "$OLD_WORKER_VERSION")
@@ -142,7 +136,13 @@ EOF
 
 greenprint "Installing osbuild-composer-worker from commit ${DESIRED_COMMIT_SHA}"
 setup_repo osbuild-composer "$DESIRED_COMMIT_SHA" 20
-sudo dnf install -y osbuild-composer-worker podman composer-cli
+# podman should already be on the host from deploy; do not reinstall it here;
+# a lone podman upgrade (e.g. 5.x -> 6.x) without matching netavark 2.x breaks
+# "podman run" with: netavark:...invalid type: sequence, expected a map
+sudo dnf install -y osbuild-composer-worker composer-cli
+if ! command -v podman &>/dev/null; then
+    sudo dnf install -y podman netavark aardvark-dns
+fi
 
 # verify the right worker is installed just to be sure
 #
